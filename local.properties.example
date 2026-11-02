@@ -1,0 +1,26 @@
+# Local Android Studio / CI settings for DroidBridge Launcher.
+# Copy this file to local.properties and fill in your private values locally.
+# Never commit or share real signing passwords, API keys, or personal SDK paths.
+# Only public OAuth values are shown here; signing passwords and API keys stay local.
+
+sdk.dir=/path/to/Android/Sdk
+
+MICROSOFT_CLIENT_ID=480930d0-ec63-4373-b0bd-496ab9841506
+MICROSOFT_REDIRECT_URI=droidbridge://auth
+MICROSOFT_SCOPE=XboxLive.signin offline_access
+CURSEFORGE_API_KEY=
+# Add the SHA-256 from Play Console > Setup > App integrity > App signing.
+# You may list both Play app-signing and upload certs, comma-separated.
+EXPECTED_RELEASE_CERT_SHA256=
+# Turn this on only after EXPECTED_RELEASE_CERT_SHA256 includes the Play app-signing cert.
+ENFORCE_LOCAL_SIGNATURE_CHECK=false
+
+# Optional next-stage server-backed activation. Never put a server private key here.
+PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER=0
+DROIDBRIDGE_ENTITLEMENT_ENDPOINT=
+DROIDBRIDGE_ENTITLEMENT_PUBLIC_KEY_BASE64=
+
+RELEASE_STORE_FILE=/path/to/release-key.jks
+RELEASE_STORE_PASSWORD=
+RELEASE_KEY_ALIAS=
+RELEASE_KEY_PASSWORD=

@@ -1,0 +1,482 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Settings search -->
+    <string name="settings_search_content_description">Search settings</string>
+    <string name="settings_search_title">Search settings</string>
+    <string name="settings_search_hint">Search for a setting</string>
+    <string name="settings_search_loading">Settings are still loading. Try again in a moment.</string>
+
+    <!-- Settings tabs -->
+    <string name="settings_recording_title">Recording Settings</string>
+    <string name="settings_dual_screen_title">Dual-screen Settings</string>
+
+    <!-- Renderer compatibility -->
+    <string name="renderer_compatibility_gl4es">Minecraft compatibility: ≤ 1.21.4</string>
+    <string name="renderer_compatibility_krypton">Minecraft compatibility: ≤ 26.1.2</string>
+    <string name="renderer_compatibility_kopper_zink">Minecraft compatibility: ≤ 26.4</string>
+    <string name="renderer_compatibility_mobileglues">Minecraft compatibility: ≤ 26.4 • TOWO Only</string>
+    <string name="renderer_compatibility_ltw">Minecraft compatibility: 1.17+</string>
+    <string name="renderer_version_defaults_title">Version-specific renderer defaults</string>
+    <string name="renderer_version_defaults_off">Off. Minecraft uses the global renderer unless an instance overrides it.</string>
+    <string name="renderer_version_rule_enable">Enable this version range</string>
+    <string name="renderer_version_rules_dialog_summary">Configure up to three Minecraft release ranges. Per-instance renderer overrides are never replaced.</string>
+    <string name="renderer_version_rule_title">Rule %1$d</string>
+    <string name="renderer_version_rule_minimum">Minimum Minecraft version</string>
+    <string name="renderer_version_rule_maximum">Maximum Minecraft version</string>
+    <string name="renderer_version_rule_renderer">Renderer</string>
+    <string name="renderer_picker_title">Renderer</string>
+    <string name="renderer_picker_summary">Choose the renderer Minecraft will use. Plugin renderers are marked in the list.</string>
+    <string name="renderer_download_open_site">Open site</string>
+    <string name="renderer_download_unconfigured">Renderer download site is not configured.</string>
+    <string name="renderer_download_open_failed">Unable to open renderer download site.</string>
+    <string name="renderer_download_content_description">Download renderers</string>
+    <string name="renderer_plugin_suffix">Plugin</string>
+    <string name="renderer_default_launcher">Default launcher renderer</string>
+    <string name="vulkan_driver_use_launcher">Use launcher Vulkan driver</string>
+
+    <!-- Physical mouse / input -->
+    <string name="physical_mouse_mode_title">Physical Mouse Mode</string>
+    <string name="physical_mouse_mode_native">Native Mouse</string>
+    <string name="physical_mouse_mode_android_virtual">Android Virtual Mouse</string>
+    <string name="physical_mouse_mode_native_summary">More accurate. Sends physical mouse input directly to Minecraft.</string>
+    <string name="physical_mouse_mode_android_virtual_summary">Mirrors the Android mouse into Minecraft while keeping DroidBridge controls usable.</string>
+    <string name="hide_android_mouse_cursor_title">Hide Android mouse cursor over Minecraft</string>
+    <string name="hide_android_mouse_cursor_summary">Hides Android’s pointer graphic. Minecraft’s cursor and DroidBridge controls still work.</string>
+    <string name="axiom_android_compatibility_title">Axiom Android Compatibility</string>
+    <string name="axiom_android_compatibility_summary">Toggle this on for Axiom mod support.</string>
+    <string name="hardware_mouse_dpi_scale_title">Hardware mouse DPI scale</string>
+    <string name="hardware_mouse_dpi_scale_summary">Adjust physical mouse speed. Touch and absolute menu input are unchanged.</string>
+    <string name="hardware_mouse_dpi_scale_value">Mouse DPI scale: %1$d%%</string>
+    <string name="touch_virtual_mouse_title">Touch Virtual Mouse</string>
+    <string name="virtual_mouse_speed_title">Virtual mouse speed</string>
+    <string name="virtual_mouse_speed_summary">Adjust finger-driven virtual cursor speed. Controller and physical mouse speed are unchanged.</string>
+    <string name="virtual_mouse_speed_value">Virtual mouse speed: %1$d%%</string>
+    <string name="camera_sensitivity_title">In-game camera sensitivity</string>
+    <string name="camera_sensitivity_summary">Adjust touchscreen look, controller right stick, and gyroscope camera speed.</string>
+    <string name="gyroscope_camera_title">Gyroscope camera</string>
+    <string name="gyroscope_camera_on">Gyroscope camera: On</string>
+    <string name="gyroscope_camera_off">Gyroscope camera: Off</string>
+    <string name="gyroscope_camera_unavailable">Gyroscope camera: Not available</string>
+    <string name="gyroscope_camera_summary_available">Move the device to look around in-game. Gyro uses the camera sensitivity setting above.</string>
+    <string name="gyroscope_camera_summary_unavailable">This device does not report a gyroscope sensor.</string>
+    <string name="touch_virtual_mouse_on">Touch Virtual Mouse: On</string>
+    <string name="touch_virtual_mouse_off">Touch Virtual Mouse: Off</string>
+
+    <!-- Mouse cursor settings -->
+    <string name="mouse_cursor_icon_title">Mouse cursor icon</string>
+    <string name="mouse_cursor_icon_summary">Choose the cursor used by Touch Virtual Mouse and controller cursor mode.</string>
+    <string name="mouse_cursor_icon_button">Mouse cursor icon settings</string>
+    <string name="cursor_choose_icon_prefix">Choose icon:</string>
+    <string name="cursor_import_normal_icon">Import / replace normal custom icon</string>
+    <string name="cursor_delete_normal_icon">Delete normal custom icon</string>
+    <string name="cursor_delete_normal_title">Delete normal custom cursor?</string>
+    <string name="cursor_delete_normal_message">The imported image will be deleted. Built-in icons are unaffected.</string>
+    <string name="cursor_delete_dynamic_message">Only the custom image for this cursor will be deleted.</string>
+    <string name="cursor_reset_all">Reset all cursor icons to defaults</string>
+    <string name="cursor_reset_all_title">Reset all cursor icons?</string>
+    <string name="cursor_reset_all_message">Restores all cursor icons and deletes imported cursor images. Cursor size and Dynamic Cursor stay unchanged.</string>
+    <string name="cursor_size_value">Cursor size: %1$d%%</string>
+    <string name="cursor_choose_custom_image">Choose icon: Custom image</string>
+
+    <!-- Launcher/settings cards -->
+    <string name="microsoft_account_add_another">Add another Microsoft account</string>
+    <string name="microsoft_accounts_manage">Manage Microsoft accounts</string>
+    <string name="java_jar_execution_title">Java jar execution</string>
+    <string name="java_jar_execution_button">Execute .jar file</string>
+    <string name="java_jar_execution_summary">Run a .jar file with DroidBridge’s bundled Java runtime.</string>
+    <string name="launcher_theme_title">Launcher theme</string>
+    <string name="launcher_theme_summary">Choose Light, Dark, or an accent theme.</string>
+    <string name="launcher_theme_change">Change launcher theme</string>
+    <string name="runtime_repair_title">Runtime repair</string>
+    <string name="runtime_repair_summary">Reinstall bundled components or Java runtimes if setup is incomplete.</string>
+    <string name="runtime_reinstall_button">Reinstall components and JREs</string>
+    <string name="runtime_install_custom_button">Install custom runtime</string>
+    <string name="backup_restore_title">Backup and restore DroidBridge data</string>
+    <string name="backup_restore_summary">Create a portable backup or restore an existing DroidBridge backup.</string>
+    <string name="backup_create_button">Create backup</string>
+    <string name="backup_restore_button">Restore backup</string>
+    <string name="dual_screen_layout_value_default">Bottom-screen layout: 16:9</string>
+    <string name="dual_screen_layout_summary">Switch the lower screen between 16:9 and 4:3 without stretching Minecraft items.</string>
+    <string name="dual_screen_fps_value_off">Bottom-screen FPS: Off</string>
+    <string name="dual_screen_fps_summary">Show live FPS on the lower screen.</string>
+
+    <!-- Common dialog/actions used by Settings -->
+    <string name="action_save">Save</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_reset_all">Reset all</string>
+    <string name="action_close">Close</string>
+    <string name="action_clear">Clear</string>
+    <string name="action_reinstall">Reinstall</string>
+    <string name="action_reinstall_missing">Reinstall Missing</string>
+    <string name="action_choose_folder">Choose folder</string>
+    <string name="action_choose_backup">Choose backup</string>
+    <string name="action_restore">Restore</string>
+    <string name="action_choose_version">Choose version</string>
+    <string name="action_next">Next</string>
+    <string name="action_install">Install</string>
+    <string name="action_run_jar">Run jar</string>
+    <string name="action_run_in_background">Run in background</string>
+
+    <!-- Shorter descriptions -->
+    <string name="webdisplays_browser_title">WebDisplays Browser (Android)</string>
+    <string name="webdisplays_browser_summary">Adjust Android browser capture quality when the WebDisplays Android Bridge mod is installed.</string>
+    <string name="launcher_updates_title">Launcher updates</string>
+    <string name="launcher_updates_summary">Check Google Play for DroidBridge updates.</string>
+    <string name="launcher_updates_startup">Check for updates on startup</string>
+    <string name="launcher_updates_check">Check for updates</string>
+    <string name="game_overlay_title">In-game overlay</string>
+    <string name="game_overlay_fps_summary">Show real-time FPS while Minecraft is running.</string>
+
+    <!-- Per-instance settings localization -->
+    <string name="per_instance_settings_title">Per Instance Settings</string>
+    <string name="per_instance_settings_summary">Override renderer, graphics, Java, JVM arguments, RAM, and launch options for this instance.</string>
+    <string name="per_instance_renderer_title">Renderer</string>
+    <string name="per_instance_renderer_summary">Use a renderer for this instance, or keep the launcher default.</string>
+    <string name="per_instance_import_vulkan_driver">Import Turnip / PanVK Driver</string>
+    <string name="per_instance_resolution_summary">Applied next launch. Resolution Scale is applied afterwards, except MCSX at 1280 × 960.</string>
+    <string name="per_instance_use_zgc">Use ZGC (off uses G1GC)</string>
+    <string name="per_instance_jvm_hint">-Dexample=true</string>
+    <string name="per_instance_custom_ram_toggle">Use custom RAM for this instance</string>
+    <string name="per_instance_add_shortcut">Add Home Screen Shortcut</string>
+    <string name="per_instance_reset">Reset</string>
+    <string name="per_instance_save">Save</string>
+    <string name="per_instance_use_launcher_vulkan_driver">Use launcher Vulkan driver</string>
+    <string name="per_instance_custom_ram_value">Custom RAM: %1$s</string>
+    <string name="per_instance_launcher_ram_value">Using launcher default: %1$s</string>
+
+    <!-- Remaining launcher settings UI copy -->
+    <string name="backup_dialog_title">Back up DroidBridge data</string>
+    <string name="backup_dialog_message">Choose a private folder for a portable DroidBridge backup.</string>
+    <string name="restore_dialog_title">Restore DroidBridge data</string>
+    <string name="restore_dialog_message">Choose a DroidBridge backup ZIP. The current data folder will be preserved as a .before_restore folder.</string>
+    <string name="restore_confirm_title">Restore this backup?</string>
+    <string name="restore_confirm_message">DroidBridge will restore this backup into:
+
+%1$s
+
+The current data folder will be moved aside first so it can be recovered manually if needed. Do not launch Minecraft during the restore.</string>
+    <string name="browser_capture_fps_value">Browser capture FPS: %1$d</string>
+    <string name="browser_capture_fps_title">WebDisplays browser frame rate</string>
+    <string name="browser_texture_value">Browser texture: %1$s</string>
+    <string name="browser_texture_title">WebDisplays browser texture resolution</string>
+    <string name="settings_restart_next_launch">Changes take effect the next time Minecraft starts.</string>
+    <string name="jar_optional_arguments">Optional arguments</string>
+    <string name="jar_running">Running jar…</string>
+    <string name="jar_execute_button">Execute .jar file</string>
+    <string name="installer_preparing">Preparing installer…</string>
+    <string name="installer_keep_open_hint">Keep DroidBridge open while the installer is running.</string>
+    <string name="installer_waiting_output">Waiting for output…</string>
+    <string name="components_missing_title">Components still missing</string>
+    <string name="fps_counter_size_title">FPS counter size</string>
+    <string name="fps_counter_size_summary">Choose Small, Medium, or Large.</string>
+    <string name="settings_cog_size_title">Settings cog size</string>
+    <string name="settings_cog_lock_summary">On: fixed in place. Off: tap to open Settings or drag to move it.</string>
+    <string name="settings_cog_position_title">Settings cog position</string>
+    <string name="settings_cog_position_summary">Choose a preset position, or unlock the cog and drag it to a custom position.</string>
+    <string name="settings_cog_reset_position">Reset floating button position</string>
+    <string name="recording_summary">Record Minecraft to MP4 with game audio, microphone audio, or both. Dual-screen can also record the HUD/touch display.</string>
+    <string name="recording_quality_title">Screen recording quality</string>
+    <string name="recording_fps_title">Recording frame rate</string>
+    <string name="recording_resolution_title">Recording resolution</string>
+    <string name="recording_performance_hint">Higher FPS, native resolution, and High Quality may reduce game performance.</string>
+    <string name="recording_audio_summary">Choose game audio, microphone voice, or both.</string>
+    <string name="recording_both_screens_summary">Record the game display and the dual-screen HUD/touch display as separate matched MP4 files.</string>
+    <string name="recording_hide_touch_controls_summary">Keep touch controls usable on the device but hide their artwork from the recording.</string>
+    <string name="recording_audio_title">Recording audio</string>
+    <string name="dual_screen_hud_layout_summary">Choose Modern, Legacy, or 3DS bottom-screen HUD layout.</string>
+    <string name="dual_screen_hud_layout_title">Bottom-screen HUD layout</string>
+    <string name="dual_screen_touch_scale_summary">Scale only the bottom-screen touch controls.</string>
+    <string name="dual_screen_touch_scale_title">Bottom-screen touch control scale</string>
+    <string name="dual_screen_top_touch_summary">When Minecraft is on the device/top display, duplicate the active touch layout over the game.</string>
+    <string name="dual_screen_background_summary">Choose an image behind the bottom-screen controls and HUD.</string>
+    <string name="dual_screen_background_title">Dual-screen background</string>
+    <string name="dual_screen_map_texture_summary">Choose the texture or frame around the dual-screen exploration map.</string>
+    <string name="dual_screen_map_texture_title">Exploration map texture</string>
+    <string name="microsoft_accounts_saved_value">Microsoft accounts saved: %1$d</string>
+    <string name="microsoft_account_remove_title">Remove Microsoft account?</string>
+    <string name="microsoft_account_remove_message">Remove %1$s from DroidBridge?</string>
+    <string name="plugin_renderer_label">Plugin renderer</string>
+
+
+    <string name="per_instance_grid_play_title">Grid play action</string>
+    <string name="per_instance_grid_play_summary">Choose what this instance’s grid play icon opens.</string>
+    <string name="per_instance_vulkan_driver_title">Vulkan Zink driver</string>
+    <string name="per_instance_vulkan_driver_summary">Choose a Turnip/PanVK driver for this instance, or keep the launcher-wide driver.</string>
+    <string name="per_instance_vulkan_driver_hint">Vulkan driver</string>
+    <string name="per_instance_graphics_api_title">Minecraft 26.2+ Graphics API</string>
+    <string name="per_instance_graphics_api_summary">Choose the graphics backend used by Minecraft 26.2 and newer for this instance.</string>
+    <string name="per_instance_graphics_api_hint">Graphics API</string>
+    <string name="per_instance_system_vulkan_title">System Vulkan compatibility</string>
+    <string name="per_instance_vulkan_compat_title">Vulkan compatibility</string>
+    <string name="per_instance_resolution_title">Resolution</string>
+    <string name="per_instance_resolution_description">Override this instance’s base framebuffer and aspect ratio.</string>
+    <string name="per_instance_custom_width">Custom width</string>
+    <string name="per_instance_custom_height">Custom height</string>
+    <string name="per_instance_java_runtime_title">Java runtime</string>
+    <string name="per_instance_java_runtime_summary">Default automatically picks the runtime for the Minecraft version.</string>
+    <string name="per_instance_dh_gc_title">Distant Horizons garbage collection</string>
+    <string name="per_instance_dh_gc_summary">Choose ZGC or G1GC when Distant Horizons is detected.</string>
+    <string name="per_instance_jvm_args_title">Custom JVM arguments</string>
+    <string name="per_instance_jvm_args_summary">Optional JVM flags. Memory and classpath flags are ignored.</string>
+    <string name="per_instance_ram_title">RAM</string>
+    <string name="per_instance_ram_summary">Leave disabled to use the launcher-wide RAM value.</string>
+    <string name="per_instance_ram_mb">RAM in MB</string>
+    <string name="per_instance_shortcut_title">Home screen shortcut</string>
+    <string name="per_instance_shortcut_summary">Add a shortcut that always uses the current instance settings and icon.</string>
+
+
+    <string name="backup_view_current_folder">View current folder</string>
+    <string name="webdisplays_fps_15">15 FPS — Low impact</string>
+    <string name="webdisplays_fps_24">24 FPS — Balanced</string>
+    <string name="webdisplays_fps_30">30 FPS — Recommended</string>
+    <string name="webdisplays_fps_60">60 FPS — Experimental</string>
+    <string name="webdisplays_texture_360">640 × 360 — Low impact</string>
+    <string name="webdisplays_texture_540">960 × 540 — Balanced</string>
+    <string name="webdisplays_texture_720">1280 × 720 — Recommended</string>
+    <string name="webdisplays_texture_1080">1920 × 1080 — Experimental</string>
+    <string name="overlay_lock_cog_on">Lock settings cog position: On</string>
+    <string name="overlay_lock_cog_off">Lock settings cog position: Off</string>
+    <string name="overlay_fps_opacity">FPS counter opacity</string>
+    <string name="overlay_cog_opacity">Settings cog opacity</string>
+    <string name="recording_quality_value">Video quality: %1$s</string>
+    <string name="recording_fps_value">Recording frame rate: %1$s</string>
+    <string name="recording_resolution_value">Recording resolution: %1$s</string>
+    <string name="recording_audio_value">Recording audio: %1$s</string>
+    <string name="dual_screen_hud_layout_value">Bottom-screen HUD layout: %1$s</string>
+    <string name="dual_screen_touch_scale_value">Bottom-screen touch control scale: %1$s</string>
+    <string name="microsoft_account_minecraft_name">Minecraft: %1$s</string>
+
+
+    <string name="webdisplays_texture_256">256 × 144 — Performance</string>
+    <string name="webdisplays_texture_512">512 × 288 — Default</string>
+    <string name="webdisplays_texture_854">854 × 480 — Higher quality</string>
+    <string name="webdisplays_restart_note">Changes take effect next launch. These settings affect only the optional WebDisplays browser.</string>
+    <string name="recording_preset_custom">Custom — choose FPS and resolution</string>
+    <string name="recording_preset_low">Low Quality — 720p / 30 FPS</string>
+    <string name="recording_preset_medium">Medium Quality — 1080p / 60 FPS</string>
+    <string name="recording_preset_high">High Quality — Native / 120 FPS</string>
+    <string name="recording_fps_30">30 FPS</string>
+    <string name="recording_fps_60">60 FPS</string>
+    <string name="recording_fps_90">90 FPS (device dependent)</string>
+    <string name="recording_fps_120">120 FPS (device dependent)</string>
+    <string name="recording_resolution_720">720p (up to 1280 × 720)</string>
+    <string name="recording_resolution_1080">1080p (up to 1920 × 1080)</string>
+    <string name="recording_resolution_native">Native screen resolution</string>
+
+    <!-- Launcher Settings localization audit: dialogs, status text, and actions -->
+    <string name="renderer_rules_saved">Version-specific renderer defaults saved.</string>
+    <string name="renderer_download_title">Download renderers</string>
+    <string name="renderer_download_summary">Get additional renderer plugins for DroidBridge.</string>
+    <string name="renderer_download_site_title">Open renderer download site</string>
+    <string name="renderer_download_site_summary">Open the renderer download page. Only install renderer packages you trust.</string>
+    <string name="vulkan_no_drivers">No Vulkan drivers found.</string>
+
+    <string name="cursor_editor_title">Mouse cursor icon</string>
+    <string name="cursor_editor_summary">Customize the Minecraft menu cursor and Dynamic Cursor mappings.</string>
+    <string name="cursor_preview_title">Preview</string>
+    <string name="cursor_normal_style_title">Normal cursor style</string>
+    <string name="cursor_normal_style_summary">Used when Dynamic Cursor is off and as its default fallback.</string>
+    <string name="cursor_choose_icon_value">Choose icon: %1$s</string>
+    <string name="cursor_dynamic_title">Dynamic Cursor</string>
+    <string name="cursor_dynamic_summary">Follow GLFW and SDL3 cursor shapes requested by Minecraft.</string>
+    <string name="cursor_dynamic_on">Dynamic Cursor: On</string>
+    <string name="cursor_dynamic_off">Dynamic Cursor: Off</string>
+    <string name="cursor_replace_image">Replace image</string>
+    <string name="cursor_delete_custom">Delete custom</string>
+    <string name="cursor_restore_default">Restore default</string>
+    <string name="cursor_delete_role_title">Delete %1$s image?</string>
+    <string name="cursor_delete_action">Delete</string>
+    <string name="cursor_reset_all_action">Reset all</string>
+    <string name="cursor_all_restored">All cursor icons restored.</string>
+    <string name="cursor_size_title">Cursor size</string>
+    <string name="cursor_choose_custom_first">Choose a custom normal cursor image first.</string>
+    <string name="cursor_settings_saved">Mouse cursor settings saved.</string>
+    <string name="cursor_invalid_image">Choose a valid image up to 8 MB. Your existing icon was kept.</string>
+    <string name="cursor_custom_imported">Custom normal cursor imported.</string>
+
+    <string name="backup_restored">DroidBridge backup restored.</string>
+    <string name="restore_failed">Restore failed: %1$s</string>
+    <string name="backup_data_folder_missing">DroidBridge data folder was not found.</string>
+    <string name="backup_created">DroidBridge backup created.</string>
+    <string name="backup_failed">Backup failed: %1$s</string>
+    <string name="launcher_theme_changed">Launcher theme changed to %1$s</string>
+
+    <string name="runtime_choose_target">Choose a target runtime first.</string>
+    <string name="runtime_install_running">Runtime/component install is already running.</string>
+    <string name="runtime_custom_installed">Custom runtime installed into %1$s</string>
+    <string name="runtime_custom_install_failed">Custom runtime install failed: %1$s</string>
+    <string name="jar_choose_file">Choose a .jar file.</string>
+    <string name="jar_dialog_title">Execute Java .jar</string>
+    <string name="jar_dialog_summary">Run a trusted Java .jar with DroidBridge’s internal Java runtime.</string>
+    <string name="cm_client_install_title">Install CM Client %1$s?</string>
+    <string name="cm_client_install_message">Download this CM Client release and create a DroidBridge instance? Existing unrelated instances will not be modified.</string>
+    <string name="cm_client_created">CM Client instance created.</string>
+    <string name="installer_choose_minecraft_version">Choose a Minecraft version first.</string>
+    <string name="installer_choose_loader_version">Choose a Fabric Loader version first.</string>
+    <string name="installer_created_instance">Created %1$s</string>
+    <string name="bta_choose_version">Choose a BTA version first.</string>
+    <string name="bta_instance_created">BTA instance created: %1$s</string>
+    <string name="optifine_install_title">OptiFine install</string>
+    <string name="optifine_version_unknown">Unable to infer the Minecraft version from this file name. Expected a name like OptiFine_1.20.1_HD_U_I6.jar.</string>
+    <string name="optifine_components_missing">OptiFine standalone install requires forge_installer.jar and OptiFineRenamer.jar. Reinstall DroidBridge components, then try again.</string>
+    <string name="optifine_install_confirm_title">Install OptiFine</string>
+    <string name="optifine_install_as_instance">Install as instance</string>
+    <string name="optifine_added">OptiFine added to %1$s</string>
+    <string name="optifine_install_failed">OptiFine install failed: %1$s</string>
+    <string name="jar_gui_native_support_required">This GUI jar needs launcher-native support.</string>
+    <string name="jar_execution_complete">Jar execution complete.</string>
+    <string name="jar_execution_exit_code">Jar finished with exit code %1$d.</string>
+    <string name="jar_execution_failed">Jar execution failed: %1$s</string>
+    <string name="installer_installing">Installing %1$s</string>
+    <string name="installer_running_warning">Keep DroidBridge open while this runs. Installers may pause while downloading, verifying, or patching files.</string>
+    <string name="dialog_close">Close</string>
+    <string name="runtime_reinstall_running">Runtime/component reinstall is already running.</string>
+    <string name="runtime_repair_dialog_title">Repair runtime components</string>
+    <string name="runtime_repair_dialog_summary">Reinstall bundled Java runtimes, LWJGL libraries, support jars, and launcher components.</string>
+    <string name="runtime_repair_card_title">Reinstall bundled files</string>
+    <string name="runtime_repair_card_summary">Does not modify Minecraft game files, accounts, worlds, mods, resource packs, or shader packs.</string>
+    <string name="runtime_repair_stopped">Component repair stopped: %1$s</string>
+    <string name="runtime_repair_ready">Components and JREs are ready.</string>
+    <string name="runtime_components_missing_title">Components still missing</string>
+
+    <string name="fps_counter_summary">Show real-time FPS while Minecraft runs. This is independent of the settings cog.</string>
+    <string name="updates_check_startup">Check for updates on startup</string>
+    <string name="ram_available_limit">Available RAM limit</string>
+    <string name="ram_maximum_access">Maximum RAM access</string>
+    <string name="ram_available_limit_summary">Reset RAM sliders to Android’s currently available memory limit.</string>
+    <string name="ram_maximum_access_summary">Reset RAM sliders to the device’s maximum supported launcher limit.</string>
+
+    <string name="recording_audio_summary_short">Choose game audio, microphone voice, or both.</string>
+    <string name="recording_hide_controls_summary_short">Keep touch controls usable on-device while hiding their artwork from recordings.</string>
+    <string name="dual_screen_hud_layout_summary_short">Choose Modern, Legacy, or 3DS bottom-screen HUD layout.</string>
+    <string name="dual_screen_touch_scale_summary_short">Scale only the bottom-screen touch controls.</string>
+    <string name="dual_screen_top_touch_summary_short">Duplicate the active touch layout over Minecraft when the game is on the top/device display.</string>
+    <string name="dual_screen_background_summary_short">Choose an image behind the bottom-screen controls and HUD.</string>
+    <string name="dual_screen_background_reset">Dual-screen background reset.</string>
+    <string name="dual_screen_background_invalid">That file could not be used as a background image.</string>
+    <string name="dual_screen_map_summary_short">Choose the texture or frame around the dual-screen exploration map.</string>
+    <string name="dual_screen_map_reset">Exploration map texture reset.</string>
+    <string name="dual_screen_map_invalid">That file could not be used as a map texture.</string>
+
+    <string name="microsoft_accounts_status">Microsoft accounts saved: %1$d • Last used: %2$s</string>
+    <string name="microsoft_accounts_title">Microsoft accounts</string>
+    <string name="microsoft_accounts_summary">Choose, refresh, remove, or add a Microsoft account.</string>
+    <string name="microsoft_accounts_none">No Microsoft accounts saved</string>
+    <string name="microsoft_accounts_none_summary">Add an account to sign in and save it to DroidBridge.</string>
+    <string name="microsoft_account_add_another_short">Add another</string>
+    <string name="microsoft_account_active_suffix"> • Active</string>
+    <string name="microsoft_account_no_uuid">No UUID saved</string>
+    <string name="microsoft_account_summary_value">Minecraft: %1$s\nUUID: %2$s</string>
+    <string name="microsoft_account_using">Using</string>
+    <string name="microsoft_account_use">Use</string>
+    <string name="microsoft_account_refresh">Refresh</string>
+    <string name="microsoft_account_remove">Remove</string>
+    <string name="microsoft_account_using_toast">Using Microsoft account: %1$s</string>
+    <string name="microsoft_account_refreshing_toast">Refreshing %1$s…</string>
+    <string name="microsoft_account_removed">Microsoft account removed.</string>
+
+    <string name="per_instance_shortcut_unavailable">Instance shortcut data is unavailable.</string>
+    <string name="per_instance_reset_done">Per-instance settings reset.</string>
+    <string name="per_instance_no_file_picker">No Android file picker is available.</string>
+    <string name="per_instance_importing_vulkan">Importing Vulkan driver…</string>
+    <string name="per_instance_saved">Per-instance settings saved.</string>
+    <string name="per_instance_ram_range">%1$s range: %2$d MB – %3$d MB • Step: %4$d MB</string>
+
+    <!-- Native installer dialogs reachable from Launcher Settings -->
+    <string name="renderer_download_site_summary_full">Open the renderer download page. Only install renderer APKs you trust.</string>
+    <string name="native_installer_title">Install %1$s</string>
+    <string name="fabric_native_summary">Choose the Minecraft and Fabric Loader versions, then let DroidBridge run the installer with the correct arguments.</string>
+    <string name="legacy_fabric_native_summary">Choose from Legacy Fabric’s supported Minecraft versions and let DroidBridge use the correct metadata.</string>
+    <string name="babric_native_summary">Babric targets Minecraft Beta 1.7.3 and uses its own loader metadata.</string>
+    <string name="fabric_native_details">DroidBridge downloads the Fabric Minecraft and loader lists, lets you choose both versions, then creates a normal Fabric instance from the installed profile.</string>
+    <string name="legacy_fabric_native_details">DroidBridge shows only Legacy Fabric’s officially supported Minecraft versions, then uses Legacy Fabric metadata and Maven sources for installation.</string>
+    <string name="babric_native_details">DroidBridge installs Babric for Minecraft Beta 1.7.3 using Babric metadata and Maven sources, then creates a separate Babric-named instance.</string>
+    <string name="fabric_minecraft_version_title">Fabric Minecraft version</string>
+    <string name="legacy_fabric_minecraft_version_title">Legacy Fabric Minecraft version</string>
+    <string name="babric_minecraft_version_title">Babric Minecraft version</string>
+    <string name="fabric_minecraft_version_summary">Choose the Minecraft version Fabric should install. Stable releases are shown first.</string>
+    <string name="legacy_fabric_minecraft_version_summary">Choose an officially supported Legacy Fabric Minecraft version.</string>
+    <string name="babric_minecraft_version_summary">Babric supports Minecraft Beta 1.7.3.</string>
+    <string name="fabric_supported_versions">Supported versions</string>
+    <string name="fabric_stable_releases">Stable releases</string>
+    <string name="fabric_snapshots_previews">Snapshots / previews</string>
+    <string name="fabric_loader_version_title">Fabric Loader version</string>
+    <string name="legacy_fabric_loader_version_title">Legacy Fabric Loader version</string>
+    <string name="babric_loader_version_title">Babric Loader version</string>
+    <string name="loader_version_summary">Choose the %1$s Loader version for Minecraft %2$s. Latest stable is selected by default.</string>
+    <string name="loader_stable_group">Stable loaders</string>
+    <string name="loader_other_group">Other loaders</string>
+    <string name="bta_install_title">Install Better than Adventure!</string>
+    <string name="bta_install_summary">Use DroidBridge’s native installer instead of the desktop BTA installer window.</string>
+    <string name="bta_install_details">DroidBridge downloads BTA’s release and nightly manifests, then creates a normal DroidBridge instance based on %1$s.</string>
+    <string name="bta_picker_title">Better than Adventure!</string>
+    <string name="bta_picker_summary">Choose the BTA version to install.</string>
+    <string name="bta_tested_versions">Tested versions</string>
+    <string name="bta_untested_versions">Untested release versions</string>
+    <string name="bta_nightly_versions">Nightly versions</string>
+
+    <!-- Remaining dynamic labels in Launcher Settings -->
+    <plurals name="renderer_version_rules_active">
+        <item quantity="one">%1$d version rule active. Per-instance renderer settings still take priority.</item>
+        <item quantity="other">%1$d version rules active. Per-instance renderer settings still take priority.</item>
+    </plurals>
+    <string name="cursor_normal_title">Normal cursor</string>
+    <string name="runtime_reinstall_working">Working…</string>
+    <string name="runtime_custom_installing">Installing…</string>
+    <string name="version_stable_suffix"> • Stable</string>
+    <string name="version_snapshot_suffix"> • Snapshot</string>
+    <string name="installer_complete">Installer complete</string>
+    <string name="installer_finished_errors">Installer finished with errors</string>
+    <string name="installer_done">Done</string>
+    <string name="installer_check_log">Check the log below</string>
+    <string name="setting_percent_value">%1$s: %2$d%%</string>
+    <string name="fps_counter_on">Show FPS counter: On (%1$s)</string>
+    <string name="fps_counter_off">Show FPS counter: Off</string>
+    <string name="microsoft_account_choose">Choose Microsoft account</string>
+    <string name="microsoft_account_generic">Microsoft account</string>
+
+    <!-- Per-instance settings localization audit -->
+    <string name="per_instance_resolution_experimental_title">Experimental game resolution</string>
+    <string name="per_instance_resolution_experimental_summary">Override this instance’s framebuffer. Unsupported values may cause display or performance issues.</string>
+    <string name="per_instance_gc_recommendation">Automatic recommendation: %1$s. %2$s%3$s</string>
+    <string name="per_instance_gc_saved_override"> This instance currently uses its saved override.</string>
+    <string name="per_instance_gc_pending_recommendation"> This recommendation is used until you save.</string>
+    <string name="per_instance_vulkan_imported">Imported for this instance: %1$s</string>
+    <string name="per_instance_vulkan_import_failed">Unable to import Vulkan driver: %1$s</string>
+    <string name="per_instance_resolution_invalid">Custom resolution values must be between %1$d and %2$d.</string>
+    <string name="memory_mb_gb_value">%1$d MB (%2$s GB)</string>
+    <string name="memory_mode_unlocked">Unlocked</string>
+    <string name="memory_mode_locked">Locked</string>
+
+    <!-- Renderer rule and driver descriptions -->
+    <string name="renderer_version_selection_help_title">How selection works</string>
+    <string name="renderer_version_selection_help_summary">Uses the first enabled range matching a stable Minecraft release. Per-instance overrides win; snapshots and prereleases are ignored.</string>
+    <string name="renderer_rule_plugin_suffix"> • Plugin</string>
+    <string name="renderer_rule_unavailable_saved">Unavailable saved renderer</string>
+    <string name="renderer_rule_none_available">No compatible renderers available</string>
+    <string name="renderer_rule_invalid_range">Rule %1$d: minimum version cannot be newer than maximum version.</string>
+    <string name="renderer_rule_choose_renderer">Rule %1$d: choose an available renderer.</string>
+    <string name="vulkan_driver_fallback_description">Uses the selected Vulkan driver for Vulkan/Zink rendering.</string>
+    <string name="vulkan_driver_detected_build">%1$s\nDetected driver build: %2$s</string>
+    <string name="mobileglues_choose_folder">Choose MobileGlues folder</string>
+    <string name="mobileglues_choose_folder_again">Choose MobileGlues folder again</string>
+
+    <string name="vulkan_driver_picker_title">Vulkan driver</string>
+    <string name="vulkan_driver_picker_summary">Choose the Vulkan driver used by Zink and Vulkan mods. Use System Vulkan bypasses the selected driver.</string>
+    <string name="vulkan_system_active_summary">Android system Vulkan is active. Select a driver below to disable System Vulkan and use that ICD.%1$s</string>
+
+    <string name="camera_sensitivity_value">In-game camera sensitivity: %1$d%%</string>
+    <string name="cursor_custom_not_selected">Custom image not selected</string>
+    <string name="cursor_summary_value">Selected: %1$s • Size: %2$d%% • Dynamic: %3$s</string>
+    <string name="state_on">On</string>
+    <string name="state_off">Off</string>
+    <string name="launcher_theme_selected_summary">Selected: %1$s • Changes the launcher appearance.</string>
+
+    <string name="launcher_theme_dialog_title">Launcher theme</string>
+    <string name="launcher_theme_dialog_summary">Choose Light, Dark, or an accent theme. Changes apply when you return to the launcher.</string>
+    <string name="custom_runtime_dialog_title">Install custom runtime</string>
+    <string name="custom_runtime_dialog_summary">Choose which internal runtime slot the archive should replace. Use only trusted Android Java runtime archives.</string>
+    <string name="cm_client_picker_title">Install CM Client</string>
+    <string name="cm_client_picker_summary">Choose a CM Client release. DroidBridge installs the official client files and creates an isolated instance.</string>
+
+</resources>

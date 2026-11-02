@@ -1,0 +1,716 @@
+plugins {
+    id 'com.android.application'
+}
+
+
+def launcherPackage = 'ca.dnamobile.droidbridgelauncher'
+
+// DroidBridge Mesa integration v72:
+// Do NOT add mesa.aar as an implementation dependency. Some Mesa AAR builds
+// declare minSdk 29 in their AndroidManifest, while DroidBridge supports minSdk 26,
+// which causes manifest merger failures. We only need the native .so files, so
+// Gradle extracts jni/<abi>/*.so from app/libs/mesa.aar into a generated jniLibs folder.
+def mesaAarFile = file('libs/mesa.aar')
+def mesaExtractedJniDir = file("$buildDir/generated/mesaJniLibsArm64")
+
+
+// Android NDK/ndk-build on Windows can fail with "APP_BUILD_SCRIPT points to an unknown file"
+// when the project path contains spaces. This happens even when Android.mk is really
+// present, because ndk-build/make receives an absolute path such as
+// C:\...\DroidBridge Rewrite\app\src\main\jni\Android.mk.
+//
+// To avoid Windows-only make/path failures, keep the real source in app/src/main/jni
+// for Android Studio, but copy it to a short temporary no-space folder whenever the
+// checked-out path contains spaces or is long enough to overflow generated object paths.
+// This preserves the normal project layout while giving NDK paths it can configure reliably.
+def nativeJniDir = file('src/main/jni')
+def nativeAndroidMk = new File(nativeJniDir, 'Android.mk')
+
+if (!nativeAndroidMk.exists()) {
+    throw new GradleException("Missing native build script: ${nativeAndroidMk.absolutePath}. Re-extract the full DroidBridge project; app/src/main/jni/Android.mk must be present.")
+}
+
+def prepareNdkBuildSafeJniDir = { File jniDir ->
+    def osName = System.getProperty('os.name', '').toLowerCase(java.util.Locale.US)
+    def projectPathHasSpaces = rootProject.rootDir.absolutePath.contains(' ') || projectDir.absolutePath.contains(' ')
+    // Windows ndk-build still creates intermediate object paths that can exceed the
+    // legacy 260-character limit when the project is extracted under a long folder.
+    // Copy the JNI source tree to a short temporary path for either spaces or length.
+    def projectPathIsLong = nativeAndroidMk.absolutePath.length() > 140
+    def needsSafeCopy = osName.contains('windows') && (projectPathHasSpaces || projectPathIsLong)
+
+    if (!needsSafeCopy) {
+        return jniDir
+    }
+
+    def hash = Integer.toHexString(rootProject.rootDir.absolutePath.toLowerCase(java.util.Locale.US).hashCode())
+    def safeRoot = new File(System.getProperty('java.io.tmpdir'), "DroidBridgeNdkBuild_${hash}")
+    def safeJniDir = new File(safeRoot, 'jni')
+
+    if (safeJniDir.absolutePath.contains(' ')) {
+        throw new GradleException("DroidBridge native build needs a no-space temporary path for ndk-build, but Gradle selected: ${safeJniDir.absolutePath}. Set java.io.tmpdir to a short no-space path such as C:/DroidBridgeTemp.")
+    }
+
+    if (safeJniDir.exists()) {
+        safeJniDir.deleteDir()
+    }
+    safeJniDir.mkdirs()
+
+    copy {
+        from jniDir
+        into safeJniDir
+    }
+
+    logger.lifecycle("DroidBridge: copied app/src/main/jni to short Windows ndk-build path ${safeJniDir.absolutePath}.")
+    return safeJniDir
+}
+
+def nativeBuildJniDir = prepareNdkBuildSafeJniDir(nativeJniDir)
+def nativeAndroidMkForNdkBuild = new File(nativeBuildJniDir, 'Android.mk')
+
+// Keep AGP's generated .cxx/object tree outside the extracted project directory.
+// This prevents NDK 29 from failing with exit code 255 when Windows object paths
+// for modules such as droidbridge_openjdk_hooks exceed MAX_PATH.
+def nativeBuildPathHash = Integer.toHexString(rootProject.rootDir.absolutePath.toLowerCase(java.util.Locale.US).hashCode())
+def nativeBuildStagingDir = new File(gradle.gradleUserHomeDir, "droidbridge-cxx/${nativeBuildPathHash}")
+
+if (!nativeAndroidMkForNdkBuild.exists()) {
+    throw new GradleException("Missing native build script after preparing ndk-build source folder: ${nativeAndroidMkForNdkBuild.absolutePath}")
+}
+
+
+// v72 strict single-source Mesa rule:
+// Mesa/Freedreno runtime libs must come from app/libs/mesa.aar only.
+// These are forbidden in app/src/main/jniLibs because loose copies can silently
+// mix with AAR-extracted copies and reproduce the Adreno 740 visual corruption.
+def forbiddenLooseMesaLibs = [
+        'libEGL_mesa.so',
+        'libgallium_dri.so',
+        'libdrm.so',
+        'libvulkan_freedreno.so'
+] as Set
+
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file('local.properties')
+
+if (localPropertiesFile.exists() && localPropertiesFile.isFile()) {
+    localPropertiesFile.withInputStream { stream ->
+        localProperties.load(stream)
+    }
+}
+
+def isBlankValue = { Object value ->
+    value == null || value.toString().trim().isEmpty()
+}
+
+def privateValue = { String key, String fallback = '' ->
+    def value = localProperties.getProperty(key)
+
+    if (isBlankValue(value)) {
+        value = project.findProperty(key)
+    }
+
+    if (isBlankValue(value)) {
+        value = System.getenv(key)
+    }
+
+    if (isBlankValue(value)) {
+        value = fallback
+    }
+
+    return value == null ? '' : value.toString().trim()
+}
+
+def privateLongValue = { String key, String fallback = '0' ->
+    def value = privateValue(key, fallback)
+    return value ==~ /[0-9]+/ ? value : fallback
+}
+
+def normalizeSha256 = { Object value ->
+    if (value == null) return ''
+    return value.toString()
+            .trim()
+            .replace(':', '')
+            .replace(' ', '')
+            .replace('-', '')
+            .toUpperCase(java.util.Locale.US)
+}
+
+def normalizeSha256List = { Object value ->
+    if (value == null) return ''
+
+    return value.toString()
+            .split(/[,;\r\n]+/)
+            .collect { normalizeSha256(it) }
+            .findAll { !it.isEmpty() }
+            .unique()
+            .join(',')
+}
+
+def isValidSha256List = { Object value ->
+    if (isBlankValue(value)) return false
+    return value.toString().split(',').every { it ==~ /[A-F0-9]{64}/ }
+}
+
+def buildConfigString = { String value ->
+    '"' + (value ?: '').replace('\\', '\\\\').replace('"', '\\"') + '"'
+}
+
+def redirectSchemeFrom = { String redirectUri ->
+    if (isBlankValue(redirectUri) || !redirectUri.contains(':')) {
+        return 'droidbridge'
+    }
+
+    return redirectUri.substring(0, redirectUri.indexOf(':'))
+}
+
+// Microsoft OAuth client IDs are public identifiers, not secrets.
+// Use the DroidBridge public client ID as a safe fallback so debug/local test builds
+// do not show "Microsoft Login is not configured" when local.properties is absent.
+def microsoftClientId = privateValue('MICROSOFT_CLIENT_ID', '480930d0-ec63-4373-b0bd-496ab9841506')
+def microsoftRedirectUri = privateValue('MICROSOFT_REDIRECT_URI', 'droidbridge://auth')
+def microsoftScope = privateValue('MICROSOFT_SCOPE', 'XboxLive.signin offline_access')
+def curseforgeApiKey = privateValue('CURSEFORGE_API_KEY', '')
+// Local certificate blocking is OFF by default. Google Play signs delivered APKs
+// with the Play app-signing key, not necessarily the upload key used for the AAB.
+// Only enable this after EXPECTED_RELEASE_CERT_SHA256 contains every accepted
+// SHA-256 fingerprint (for example upload + Play app-signing certificates).
+def enforceLocalSignatureCheck = privateValue('ENFORCE_LOCAL_SIGNATURE_CHECK', 'true')
+        .equalsIgnoreCase('true')
+def expectedReleaseCertSha256 = normalizeSha256List(
+        privateValue('EXPECTED_RELEASE_CERT_SHA256', '')
+)
+
+// Prepared for the next hardening pass. These do nothing dangerous by themselves;
+// Java/Kotlin code must request a Play Integrity token and your backend must verify it.
+def playIntegrityCloudProjectNumber = privateLongValue('PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER', '0')
+def droidBridgeEntitlementEndpoint = privateValue('DROIDBRIDGE_ENTITLEMENT_ENDPOINT', '')
+def droidBridgeEntitlementPublicKeyBase64 = privateValue('DROIDBRIDGE_ENTITLEMENT_PUBLIC_KEY_BASE64', '')
+
+def releaseStoreFile = privateValue('RELEASE_STORE_FILE', '')
+def releaseStorePassword = privateValue('RELEASE_STORE_PASSWORD', '')
+def releaseKeyAlias = privateValue('RELEASE_KEY_ALIAS', '')
+def releaseKeyPassword = privateValue('RELEASE_KEY_PASSWORD', '')
+
+def hasReleaseSigning =
+        !isBlankValue(releaseStoreFile)
+                && !isBlankValue(releaseStorePassword)
+                && !isBlankValue(releaseKeyAlias)
+                && !isBlankValue(releaseKeyPassword)
+
+def apkFileSafeValue = { Object value, String fallback ->
+    def safeValue = value == null ? '' : value.toString().trim()
+    safeValue = safeValue.replaceAll(/[^A-Za-z0-9._-]+/, '-')
+    safeValue = safeValue.replaceAll(/^-+|-+$/, '')
+    return safeValue.isEmpty() ? fallback : safeValue
+}
+
+def launcherVersionCode = 128
+def launcherVersionName = '0.10.31'
+def launcherVersionNameForFile = apkFileSafeValue(launcherVersionName, 'unknown')
+def launcherArchiveName = "DroidBridge-Launcher-v${launcherVersionNameForFile}-build${launcherVersionCode}"
+
+// Configure the archive base name before AGP creates APK/AAB tasks.
+// The version name and version code above are the single source of truth.
+// The generated release bundle is:
+// DroidBridge-Launcher-v0.10.5-build108-release.aab
+base {
+    archivesName = launcherArchiveName
+}
+
+def isReleaseTaskPath = { String path ->
+    def lower = path == null ? '' : path.toLowerCase(java.util.Locale.US)
+    return lower.contains(':app:')
+            && lower.contains('release')
+            && (lower.contains('assemble')
+            || lower.contains('bundle')
+            || lower.contains('package')
+            || lower.contains('pre'))
+}
+
+gradle.taskGraph.whenReady { taskGraph ->
+    def releaseRequested = taskGraph.allTasks.any { task ->
+        isReleaseTaskPath(task.path)
+    }
+
+    if (releaseRequested) {
+        if (isBlankValue(microsoftClientId)) {
+            throw new GradleException(
+                    'Missing MICROSOFT_CLIENT_ID. Add MICROSOFT_CLIENT_ID=your-client-id to root local.properties.'
+            )
+        }
+
+        if (isBlankValue(microsoftRedirectUri) || !microsoftRedirectUri.contains('://')) {
+            throw new GradleException(
+                    'Missing or invalid MICROSOFT_REDIRECT_URI. Example: MICROSOFT_REDIRECT_URI=droidbridge://auth'
+            )
+        }
+
+        if (!hasReleaseSigning) {
+            throw new GradleException(
+                    'Release builds must be signed. Add RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD, RELEASE_KEY_ALIAS, and RELEASE_KEY_PASSWORD to root local.properties or environment variables.'
+            )
+        }
+
+        if (!enforceLocalSignatureCheck || !isValidSha256List(expectedReleaseCertSha256)) {
+            throw new GradleException(
+                    'Production builds require ENFORCE_LOCAL_SIGNATURE_CHECK=true and EXPECTED_RELEASE_CERT_SHA256 with the real SHA-256 fingerprint(s) of your Play app-signing or official distribution certificate. Refusing to build an unprotected release.'
+            )
+        }
+    }
+}
+
+// Horizon engine (Minecraft Java 26.3 rewritten in Rust), offered per instance next to
+// the Java engine. It is optional: without its files the launcher builds and runs with
+// the Java engine only, and the Horizon activity/provider are disabled in the manifest.
+//
+// Supply the output of the Horizon repository's tools/android_build.py by either:
+//   HORIZON_ANDROID_OUTPUT=C:/path/to/horizon-engine/.local/android   (local.properties)
+// or by copying the files into <project root>/horizon-engine-dist/:
+//   jniLibs/arm64-v8a/libhorizon_android.so
+//   assets/engine-data.zip
+// Google Play builds must use the engine from `tools/android_build.py --public`: its
+// engine-data.zip holds generated tables only, and Minecraft's own files download from
+// Mojang on the device.
+def horizonAbi = 'arm64-v8a'
+
+// Building the engine with the app: when the Horizon source is next to this project
+// (StudioProjects/horizon-engine, or HORIZON_ENGINE_SOURCE), every app build first runs its
+// tools/android_build.py --host-libs. Cargo rebuilds only what changed (about a second when
+// nothing did), so Run in Android Studio picks up Rust edits with no PowerShell step.
+// Debug builds use Horizon's quick "fast" profile; release builds (bundleRelease, ...) use
+// the full "release" profile. HORIZON_AUTO_BUILD=false turns this off.
+def horizonSourceSetting = privateValue('HORIZON_ENGINE_SOURCE', '').toString().trim()
+def horizonSourceRoot = isBlankValue(horizonSourceSetting)
+        ? new File(rootProject.projectDir.parentFile, 'horizon-engine')
+        : new File(horizonSourceSetting)
+def horizonAutoBuild = !'false'.equalsIgnoreCase(privateValue('HORIZON_AUTO_BUILD', 'true').toString().trim()) &&
+        new File(horizonSourceRoot, 'tools/android_build.py').isFile() &&
+        new File(horizonSourceRoot, 'Cargo.toml').isFile()
+def horizonReleaseBuild = gradle.startParameter.taskNames.any { it.toLowerCase(java.util.Locale.US).contains('release') }
+def horizonProfileSetting = privateValue('HORIZON_BUILD_PROFILE', '').toString().trim()
+def horizonBuildProfile = isBlankValue(horizonProfileSetting)
+        ? (horizonReleaseBuild ? 'release' : 'fast')
+        : horizonProfileSetting
+
+// Where to look for an already built engine, first match wins: the auto-built source above,
+// HORIZON_ANDROID_OUTPUT, horizon-engine-dist/, then StudioProjects/horizon-engine's output.
+def horizonOutputSetting = privateValue('HORIZON_ANDROID_OUTPUT', '').toString().trim()
+def horizonCandidates = []
+if (horizonAutoBuild) {
+    def root = new File(horizonSourceRoot, '.local/android')
+    horizonCandidates << [label: 'built from ' + horizonSourceRoot.name, jni: new File(root, 'gradle-jni'), assets: new File(root, 'gradle-assets')]
+}
+if (!isBlankValue(horizonOutputSetting)) {
+    def root = new File(horizonOutputSetting)
+    horizonCandidates << [label: 'HORIZON_ANDROID_OUTPUT', jni: new File(root, 'gradle-jni'), assets: new File(root, 'gradle-assets')]
+}
+horizonCandidates << [label: 'horizon-engine-dist', jni: rootProject.file('horizon-engine-dist/jniLibs'), assets: rootProject.file('horizon-engine-dist/assets')]
+def horizonSibling = new File(rootProject.projectDir.parentFile, 'horizon-engine/.local/android')
+horizonCandidates << [label: 'sibling horizon-engine', jni: new File(horizonSibling, 'gradle-jni'), assets: new File(horizonSibling, 'gradle-assets')]
+def horizonFound = horizonAutoBuild ? horizonCandidates[0] : horizonCandidates.find {
+    new File(it.jni, "${horizonAbi}/libhorizon_android.so").isFile() && new File(it.assets, 'engine-data.zip').isFile()
+}
+def horizonSourceJniDir = (horizonFound ?: horizonCandidates[0]).jni
+def horizonSourceAssetsDir = (horizonFound ?: horizonCandidates[0]).assets
+def horizonSourceLibrary = new File(horizonSourceJniDir, "${horizonAbi}/libhorizon_android.so")
+def horizonSourceEngineData = new File(horizonSourceAssetsDir, 'engine-data.zip')
+def horizonEngineBundled = horizonFound != null
+// Staged copies, so only the files the launcher needs enter the APK.
+def horizonStageDir = file("$buildDir/generated/horizonStage")
+def horizonStagedJniDir = new File(horizonStageDir, 'jniLibs')
+def horizonStagedAssetsDir = new File(horizonStageDir, 'assets')
+
+if (horizonAutoBuild) {
+    logger.lifecycle("DroidBridge: Horizon engine builds with the app from ${horizonSourceRoot} (${horizonBuildProfile} profile).")
+} else if (horizonEngineBundled) {
+    logger.lifecycle("DroidBridge: Horizon engine found (${horizonFound.label}) at ${horizonSourceLibrary.parentFile.parentFile.parentFile}; bundling it.")
+} else {
+    logger.lifecycle('DroidBridge: Horizon engine not found. Building with the Java engine only. Looked for:')
+    if (!isBlankValue(horizonOutputSetting) && !horizonOutputSetting.contains('/') && !horizonOutputSetting.contains('\\')) {
+        logger.lifecycle("  HORIZON_ANDROID_OUTPUT reads as '${horizonOutputSetting}': in local.properties use forward slashes (C:/Users/...).")
+    }
+    horizonCandidates.each { candidate ->
+        def library = new File(candidate.jni, "${horizonAbi}/libhorizon_android.so")
+        def data = new File(candidate.assets, 'engine-data.zip')
+        logger.lifecycle("  [${candidate.label}] ${library} ${library.isFile() ? '(ok)' : '(missing)'}")
+        logger.lifecycle("  [${candidate.label}] ${data} ${data.isFile() ? '(ok)' : '(missing)'}")
+    }
+}
+
+android {
+    namespace launcherPackage
+    compileSdk 36
+
+    ndkVersion '29.0.14206865'
+
+    defaultConfig {
+        applicationId launcherPackage
+        minSdk 26
+        //noinspection OldTargetApi
+        targetSdk 36
+        versionCode launcherVersionCode
+        versionName launcherVersionName
+
+        // AGP 8.x uses this archive base for the actual bundle task output.
+        // The modern Gradle base.archivesName setting above mirrors this value.
+        setProperty('archivesBaseName', launcherArchiveName)
+
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+        multiDexEnabled true
+        vectorDrawables.useSupportLibrary = true
+
+        manifestPlaceholders = [
+                appAuthRedirectScheme: redirectSchemeFrom(microsoftRedirectUri),
+                horizonEngineEnabled : horizonEngineBundled.toString()
+        ]
+
+        buildConfigField 'String', 'MICROSOFT_CLIENT_ID', buildConfigString(microsoftClientId)
+        buildConfigField 'String', 'MICROSOFT_REDIRECT_URI', buildConfigString(microsoftRedirectUri)
+        buildConfigField 'String', 'MICROSOFT_SCOPE', buildConfigString(microsoftScope)
+        buildConfigField 'String', 'GAME_DIRECTORY_NAME', buildConfigString('.minecraft')
+        buildConfigField 'String', 'CURSEFORGE_API_KEY', buildConfigString(curseforgeApiKey)
+        buildConfigField 'String', 'EXPECTED_RELEASE_CERT_SHA256', buildConfigString(expectedReleaseCertSha256)
+        buildConfigField 'boolean', 'LOCAL_SIGNATURE_CHECK_ENABLED', enforceLocalSignatureCheck.toString()
+        buildConfigField 'long', 'PLAY_INTEGRITY_CLOUD_PROJECT_NUMBER', "${playIntegrityCloudProjectNumber}L"
+        buildConfigField 'String', 'DROIDBRIDGE_ENTITLEMENT_ENDPOINT', buildConfigString(droidBridgeEntitlementEndpoint)
+        buildConfigField 'String', 'DROIDBRIDGE_ENTITLEMENT_PUBLIC_KEY_BASE64', buildConfigString(droidBridgeEntitlementPublicKeyBase64)
+        buildConfigField 'boolean', 'HORIZON_ENGINE_BUNDLED', horizonEngineBundled.toString()
+
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+    }
+
+    signingConfigs {
+        release {
+            if (hasReleaseSigning) {
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix '.debug'
+            versionNameSuffix '-debug'
+
+            debuggable true
+            jniDebuggable true
+            minifyEnabled false
+            shrinkResources false
+
+            buildConfigField 'boolean', 'HARDENED_BUILD', 'false'
+            buildConfigField 'boolean', 'ALLOW_OFFLINE_PROFILE_AUTH', 'false'
+            buildConfigField 'boolean', 'REQUIRE_PLAY_INTEGRITY_FOR_ENTITLEMENT', 'false'
+        }
+
+        obfuscatedDebug {
+            initWith debug
+
+            applicationIdSuffix '.obfdebug'
+            versionNameSuffix '-obfdebug'
+
+            debuggable false
+            jniDebuggable false
+            minifyEnabled true
+            shrinkResources false
+
+            buildConfigField 'boolean', 'HARDENED_BUILD', 'true'
+            buildConfigField 'boolean', 'ALLOW_OFFLINE_PROFILE_AUTH', 'false'
+            buildConfigField 'boolean', 'REQUIRE_PLAY_INTEGRITY_FOR_ENTITLEMENT', 'false'
+
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            matchingFallbacks = ['debug']
+        }
+
+        release {
+            debuggable false
+            jniDebuggable false
+
+            // Google Play code optimization: run R8 for the production artifact.
+            // This was previously disabled, which left almost all DEX symbols readable.
+            minifyEnabled true
+            shrinkResources true
+
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
+
+            buildConfigField 'boolean', 'HARDENED_BUILD', 'true'
+            // Offline *profiles* are gone. Cached verified Microsoft-account play is still
+            // permitted when the signed install-bound receipt matches that account.
+            buildConfigField 'boolean', 'ALLOW_OFFLINE_PROFILE_AUTH', 'false'
+            buildConfigField 'boolean', 'REQUIRE_PLAY_INTEGRITY_FOR_ENTITLEMENT', 'false'
+
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    // Runtime packs are read as raw streams and then decompressed by the launcher.
+    // Keeping them uncompressed avoids release-only asset streaming edge cases and speeds
+    // first-run runtime extraction. This is not a security setting.
+    androidResources {
+        noCompress += ['tar.xz', 'xz', 'tar', 'pack', 'jar']
+    }
+
+    buildFeatures {
+        prefab true
+        buildConfig true
+        viewBinding true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    externalNativeBuild {
+        ndkBuild {
+            path nativeAndroidMkForNdkBuild
+            buildStagingDirectory nativeBuildStagingDir
+        }
+    }
+
+    sourceSets {
+        main {
+            // Put extracted Mesa libs first so Mesa's libdrm/libgbm win if duplicate names exist.
+            jniLibs.srcDirs = [mesaExtractedJniDir, 'src/main/jniLibs']
+            if (horizonEngineBundled) {
+                jniLibs.srcDirs += horizonStagedJniDir
+                assets.srcDirs += horizonStagedAssetsDir
+            }
+        }
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging true
+            pickFirsts += [
+                    '**/libbytehook.so',
+                    '**/libc++_shared.so',
+                    '**/libEGL.so'
+            ]
+        }
+
+        resources {
+            excludes += [
+                    '/META-INF/{AL2.0,LGPL2.1}',
+                    'META-INF/LICENSE*',
+                    'META-INF/NOTICE*',
+                    'META-INF/*.SF',
+                    'META-INF/*.DSA',
+                    'META-INF/*.RSA'
+            ]
+        }
+    }
+
+    applicationVariants.configureEach { variant ->
+        if (variant.buildType.name == 'release') {
+            variant.outputs.configureEach { output ->
+                outputFileName = "${launcherArchiveName}-release.apk"
+            }
+        }
+    }
+}
+
+// The actual APK/AAB archive base name is configured through Gradle's base
+// archive convention above. AGP appends the build type, producing:
+// DroidBridge-Launcher-v0.10.5-build108-release.aab
+
+dependencies {
+    // Mesa AAR is intentionally not declared as implementation files('libs/mesa.aar').
+    // Native Mesa libraries are extracted by extractMesaAarJniLibs below to avoid
+    // manifest merger failures from the AAR's AndroidManifest.xml.
+
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'com.google.android.material:material:1.12.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation 'androidx.recyclerview:recyclerview:1.3.2'
+    implementation 'androidx.security:security-crypto:1.1.0-alpha06'
+    implementation 'androidx.browser:browser:1.8.0'
+
+    implementation 'net.openid:appauth:0.11.1'
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    implementation 'com.google.code.gson:gson:2.11.0'
+
+    // Client dependency for the optional backend-backed entitlement phase. The app
+    // deliberately keeps REQUIRE_PLAY_INTEGRITY_FOR_ENTITLEMENT=false until a server
+    // endpoint is configured: Play Integrity verdicts must be verified server-side.
+    implementation 'com.google.android.play:integrity:1.6.0'
+
+    implementation 'org.apache.commons:commons-compress:1.27.1'
+    implementation 'org.tukaani:xz:1.10'
+    implementation("top.fifthlight.touchcontroller:proxy-client-android:0.0.5")
+    implementation 'com.bytedance:bytehook:1.0.10'
+    implementation project(':nativeglfw')
+}
+
+
+
+tasks.register('verifyNoLooseMesaJniLibs') {
+    group = 'droidbridge'
+    description = 'Fails if Mesa/Freedreno native libs are still present as loose src/main/jniLibs files.'
+
+    doLast {
+        if (!mesaAarFile.exists()) {
+            throw new GradleException(
+                    'Missing app/libs/mesa.aar.'
+            )
+        }
+
+        def looseRoot = file('src/main/jniLibs')
+        def hits = []
+        def arm64LooseRoot = file('src/main/jniLibs/arm64-v8a')
+        if (arm64LooseRoot.exists()) {
+            arm64LooseRoot.eachFileRecurse { candidate ->
+                if (candidate.isFile() && forbiddenLooseMesaLibs.contains(candidate.name)) {
+                    hits << candidate
+                }
+            }
+        }
+
+        if (!hits.isEmpty()) {
+            def formatted = hits.collect { " - ${projectDir.toPath().relativize(it.toPath())}" }.join('\n')
+            throw new GradleException(
+                    'Loose arm64 Mesa/Freedreno libs found. Delete these so app/libs/mesa.aar is the only arm64 Mesa source:\n' + formatted
+            )
+        }
+
+        logger.lifecycle('DroidBridge Mesa v73: no loose Mesa/Freedreno jniLibs found; using app/libs/mesa.aar as native source of truth.')
+    }
+}
+
+tasks.register('extractMesaAarJniLibs', Copy) {
+    group = 'droidbridge'
+    description = 'Extracts native Mesa libraries from app/libs/mesa.aar without merging the Mesa AAR manifest.'
+
+    onlyIf { mesaAarFile.exists() }
+    includeEmptyDirs = false
+
+    from(zipTree(mesaAarFile)) {
+        include 'jni/arm64-v8a/*.so'
+        // DroidBridge builds an app-local libEGL.so selector shim from native sources.
+        // Do not let a Mesa AAR libEGL.so overwrite that shim if the AAR happens to contain one.
+        exclude 'jni/**/libEGL.so'
+        eachFile { details ->
+            // AAR layout is jni/<abi>/libName.so, but jniLibs expects <abi>/libName.so.
+            details.path = details.path.replaceFirst('^jni/', '')
+        }
+    }
+    into mesaExtractedJniDir
+
+    doFirst {
+        delete mesaExtractedJniDir
+        logger.lifecycle("DroidBridge Mesa v73 arm64-only: extracting native libraries from ${mesaAarFile}")
+    }
+
+    doLast {
+        def arm64MesaEgl = new File(mesaExtractedJniDir, 'arm64-v8a/libEGL_mesa.so')
+        def arm64Gallium = new File(mesaExtractedJniDir, 'arm64-v8a/libgallium_dri.so')
+        def arm64Drm = new File(mesaExtractedJniDir, 'arm64-v8a/libdrm.so')
+        def arm64VulkanFreedreno = new File(mesaExtractedJniDir, 'arm64-v8a/libvulkan_freedreno.so')
+
+        logger.lifecycle("DroidBridge Mesa v73: extracted dir=${mesaExtractedJniDir}")
+        logger.lifecycle("DroidBridge Mesa v73: arm64 libEGL_mesa.so exists=${arm64MesaEgl.exists()}")
+        logger.lifecycle("DroidBridge Mesa v73: arm64 libgallium_dri.so exists=${arm64Gallium.exists()}")
+        logger.lifecycle("DroidBridge Mesa v73: arm64 libdrm.so exists=${arm64Drm.exists()}")
+        logger.lifecycle("DroidBridge Mesa v73: arm64 libvulkan_freedreno.so exists=${arm64VulkanFreedreno.exists()}")
+    }
+}
+
+// Python 3 for tools/android_build.py: HORIZON_PYTHON, else the Windows "py" launcher,
+// else python3 / python on PATH.
+def horizonPythonCommand = {
+    def configured = privateValue('HORIZON_PYTHON', '').toString().trim()
+    if (!isBlankValue(configured)) return [configured]
+    def onPath = { String name ->
+        def suffixes = System.getProperty('os.name').toLowerCase(java.util.Locale.US).contains('windows')
+                ? ['.exe', '.bat', '']
+                : ['']
+        (System.getenv('PATH') ?: '').split(File.pathSeparator).any { dir ->
+            suffixes.any { suffix -> new File(dir, name + suffix).isFile() }
+        }
+    }
+    if (onPath('py')) return ['py', '-3']
+    if (onPath('python3')) return ['python3']
+    return ['python']
+}
+
+tasks.register('buildHorizonEngine', Exec) {
+    group = 'droidbridge'
+    description = 'Builds the Horizon (Rust) engine from its source next to this project.'
+
+    onlyIf { horizonAutoBuild }
+    // Cargo decides what is out of date, so this always asks it (a no-op build is quick).
+    outputs.upToDateWhen { false }
+    workingDir horizonSourceRoot
+    def sdkDir = android.sdkDirectory
+    def javaHome = System.getProperty('java.home')
+    // Android Studio keeps the PATH it started with; Rust installed later is not on it.
+    def cargoBin = new File(System.getProperty('user.home'), '.cargo/bin')
+    if (cargoBin.isDirectory()) {
+        def pathKey = System.getenv().keySet().find { it.equalsIgnoreCase('PATH') } ?: 'PATH'
+        environment(pathKey, cargoBin.absolutePath + File.pathSeparator + (System.getenv(pathKey) ?: ''))
+    }
+    commandLine(horizonPythonCommand() + [
+            new File(horizonSourceRoot, 'tools/android_build.py').absolutePath,
+            '--abi', horizonAbi,
+            '--public',
+            '--host-libs',
+            '--profile', horizonBuildProfile,
+            '--sdk', sdkDir.absolutePath,
+            '--java-home', javaHome
+    ])
+    doFirst {
+        logger.lifecycle("DroidBridge: building the Horizon engine (${horizonBuildProfile}); the first build takes several minutes.")
+    }
+}
+
+tasks.register('stageHorizonEngine', Sync) {
+    dependsOn('buildHorizonEngine')
+    group = 'droidbridge'
+    description = 'Copies the Horizon (Rust) engine library and engine data into the APK inputs.'
+
+    onlyIf { horizonEngineBundled }
+    includeEmptyDirs = false
+
+    from(horizonSourceLibrary) {
+        into "jniLibs/${horizonAbi}"
+    }
+    from(horizonSourceEngineData) {
+        into 'assets'
+    }
+    // Horizon is MIT-licensed; ship its notices with the engine.
+    from(horizonSourceAssetsDir) {
+        include 'LICENSE.txt', 'THIRD_PARTY_NOTICES.md'
+        into 'assets/horizon'
+    }
+    into horizonStageDir
+
+    doLast {
+        logger.lifecycle("DroidBridge: staged ${horizonSourceLibrary.name} (${(horizonSourceLibrary.length() / (1024 * 1024)) as long} MiB) and engine-data.zip")
+    }
+}
+
+tasks.named('preBuild') {
+    dependsOn('stageHorizonEngine')
+    dependsOn(':methods_injector_agent:copyAgentToAssets')
+    dependsOn('verifyNoLooseMesaJniLibs')
+    dependsOn('extractMesaAarJniLibs')
+}
+
+// Ensure all build variants package the extracted Mesa .so files before native lib merging.
+tasks.configureEach { task ->
+    if (task.name.startsWith('merge') && task.name.endsWith('JniLibFolders')) {
+        task.dependsOn('verifyNoLooseMesaJniLibs')
+        task.dependsOn('extractMesaAarJniLibs')
+        task.dependsOn('stageHorizonEngine')
+    }
+    if (task.name.startsWith('merge') && task.name.endsWith('Assets')) {
+        task.dependsOn('stageHorizonEngine')
+    }
+}

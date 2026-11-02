@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+
+    <ca.dnamobile.droidbridgelauncher.runtime.MinecraftGLSurface
+        android:id="@+id/minecraft_surface"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fillViewport="false"
+        android:layout_gravity="top"
+        android:background="#66000000">
+
+        <TextView
+            android:id="@+id/textStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="12dp"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:typeface="monospace" />
+    </ScrollView>
+
+
+    <LinearLayout
+        android:id="@+id/layoutLogOverlay"
+        android:layout_width="360dp"
+        android:layout_height="420dp"
+        android:layout_gravity="start|top"
+        android:background="#FF000000"
+        android:clickable="true"
+        android:focusable="false"
+        android:orientation="vertical"
+        android:padding="8dp"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:id="@+id/layoutLogOverlayHeader"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:background="@drawable/bg_game_log_header"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/textLogOverlayTitle"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center_vertical"
+                android:paddingStart="10dp"
+                android:paddingEnd="6dp"
+                android:text="@string/game_log_overlay_title"
+                android:textColor="#FFFFFFFF"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <ImageButton
+                android:id="@+id/buttonLogOverlayPausePlay"
+                android:layout_width="44dp"
+                android:layout_height="match_parent"
+                android:background="@android:color/transparent"
+                android:contentDescription="@string/game_log_overlay_pause"
+                android:padding="10dp"
+                android:src="@drawable/ic_pause_24" />
+
+            <TextView
+                android:id="@+id/buttonLogOverlayMinimize"
+                android:layout_width="44dp"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:text="@string/game_log_minimize"
+                android:textColor="#FFFFFFFF"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/buttonLogOverlayHide"
+                android:layout_width="44dp"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:text="@string/game_log_hide"
+                android:textColor="#FFFFFFFF"
+                android:textSize="22sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <ScrollView
+            android:id="@+id/scrollLogOverlay"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="4dp"
+            android:layout_weight="1"
+            android:clickable="true"
+            android:fillViewport="false"
+            android:focusable="true">
+
+            <TextView
+                android:id="@+id/textLogOverlay"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:clickable="false"
+                android:focusable="false"
+                android:includeFontPadding="false"
+                android:textColor="#FFFFFFFF"
+                android:textSize="10sp"
+                android:typeface="monospace" />
+        </ScrollView>
+
+        <TextView
+            android:id="@+id/textLogOverlayResizeHandle"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:layout_gravity="end"
+            android:gravity="center"
+            android:minWidth="76dp"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp"
+            android:text="@string/game_log_resize"
+            android:textColor="#CCFFFFFF"
+            android:textSize="10sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+
+    <ImageButton
+        android:id="@+id/buttonLogOverlayRestore"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_gravity="start|top"
+        android:background="@drawable/bg_ingame_settings_button"
+        android:contentDescription="@string/game_log_overlay_restore"
+        android:padding="10dp"
+        android:src="@drawable/ic_game_log_paper_24"
+        android:visibility="gone" />
+
+
+    <ImageButton
+        android:id="@+id/buttonGameSettings"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_gravity="end|bottom"
+        android:layout_margin="16dp"
+        android:background="@drawable/bg_ingame_settings_button"
+        android:contentDescription="@string/game_button_overlay_settings"
+        android:padding="12dp"
+        android:src="@drawable/ic_ingame_settings_24" />
+
+</FrameLayout>

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Shared labels moved out of layouts during the Java/Res localization audit. -->
+    <string name="content_browser_change_version_filter">Change Minecraft version filter</string>
+    <string name="content_browser_loader_fabric">Fabric</string>
+    <string name="content_browser_latest_release">Latest release</string>
+    <string name="main_instances">Instances</string>
+    <string name="main_mods">Mods</string>
+    <string name="main_browse_modpacks">Browse Modpacks</string>
+    <string name="main_import_modpack">Import Modpack</string>
+    <string name="content_gallery_screenshot_description">Screenshot</string>
+    <string name="content_gallery_project_screenshot_description">Project screenshot</string>
+    <string name="project_details_back">Back</string>
+    <string name="project_details_loading">Loading</string>
+    <string name="project_details_website">Website</string>
+    <string name="project_details_image_description">Project image</string>
+    <string name="project_details_loading_versions">Loading versions…</string>
+    <string name="project_details_minecraft_version">Minecraft version</string>
+    <string name="project_details_all_minecraft_versions">All Minecraft versions</string>
+    <string name="project_details_page_default">Page 1 of 1</string>
+    <string name="project_details_previous">Previous</string>
+    <string name="project_details_next">Next</string>
+    <string name="game_log_minimize">—</string>
+    <string name="game_log_hide">×</string>
+    <string name="game_log_resize">↘  Resize</string>
+</resources>

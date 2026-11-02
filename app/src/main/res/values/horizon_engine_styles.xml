@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Account preflight before a Horizon launch: only its dialogs are visible. -->
+    <style name="Theme.DroidBridge.HorizonHandoff" parent="Theme.DroidBridge">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">true</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
+
+    <!-- The engine's NativeActivity. Based on DroidBridge's own theme because DroidBridge's
+         controls show their dialogs (cog menu, touch-controls dialogs) in this activity, and
+         those Material dialogs require an AppCompat/Material Components theme. -->
+    <style name="HorizonGameTheme" parent="Theme.DroidBridge">
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
+</resources>

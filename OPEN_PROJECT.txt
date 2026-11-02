@@ -1,0 +1,14 @@
+DroidBridge Android Studio project
+=================================
+
+1. Extract this folder anywhere.
+2. Open this folder in Android Studio (the folder containing settings.gradle).
+3. Allow Gradle Sync to finish.
+4. If Android Studio asks for the Android SDK path, select your installed SDK.
+5. Build or run the app normally.
+
+Application ID / namespace:
+ca.dnamobile.droidbridgelauncher
+
+The existing FFmpeg companion identifiers in app/src/main/AndroidManifest.xml were intentionally preserved.
+Generated build output and machine-specific Gradle/IDE caches are intentionally excluded.

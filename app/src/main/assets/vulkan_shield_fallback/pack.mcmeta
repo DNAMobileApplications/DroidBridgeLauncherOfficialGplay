@@ -1,0 +1,13 @@
+{
+  "pack": {
+    "description": "DroidBridge Qualcomm Vulkan shield rendering fallback",
+    "min_format": [
+      88,
+      0
+    ],
+    "max_format": [
+      999,
+      0
+    ]
+  }
+}
