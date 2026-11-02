@@ -50,6 +50,10 @@ import java.util.List;
 import java.util.Locale;
 
 import ca.dnamobile.droidbridgelauncher.R;
+import ca.dnamobile.droidbridgelauncher.engine.EngineLauncher;
+import ca.dnamobile.droidbridgelauncher.engine.EnginePreferences;
+import ca.dnamobile.droidbridgelauncher.engine.GameEngine;
+import ca.dnamobile.droidbridgelauncher.engine.horizon.HorizonEngine;
 import ca.dnamobile.droidbridgelauncher.ui.LauncherDialogStyle;
 import ca.dnamobile.droidbridgelauncher.launcher.DistantHorizonsGcMitigation;
 import ca.dnamobile.droidbridgelauncher.launcher.InstanceLaunchSettings;
@@ -100,7 +104,11 @@ public final class PerInstanceSettingsDialog {
     private int selectedVulkanCompatibilityModeIndex;
     private int selectedResolutionModeIndex;
     private int selectedLaunchTargetModeIndex;
+    private int selectedGameEngineIndex;
+    private boolean horizonEngineAvailable;
+    @Nullable private LauncherInstance horizonInstance;
 
+    private MaterialAutoCompleteTextView gameEngineDropdown;
     private MaterialAutoCompleteTextView rendererDropdown;
     private TextView rendererCompatibilitySummary;
     private MaterialAutoCompleteTextView vulkanDriverDropdown;
@@ -199,6 +207,10 @@ public final class PerInstanceSettingsDialog {
         formScroll.addView(form, matchWrap());
 
         form.addView(createLaunchTargetSection(settings), matchWrap());
+        View gameEngineSection = createGameEngineSection();
+        if (gameEngineSection != null) {
+            form.addView(gameEngineSection, matchWrap());
+        }
         form.addView(createRendererSection(settings), matchWrap());
         form.addView(createVulkanDriverSection(settings), matchWrap());
         form.addView(createGraphicsApiSection(settings), matchWrap());
@@ -318,6 +330,112 @@ public final class PerInstanceSettingsDialog {
         TextInputLayout layout = createDropdownLayout(activity.getString(R.string.per_instance_grid_play_title));
         layout.addView(launchTargetDropdown, matchWrap());
         section.addView(layout, matchWrap());
+        return section;
+    }
+
+    @Nullable
+    private View createGameEngineSection() {
+        LauncherInstance target = LauncherInstanceManager.findByNameOrId(activity, settingsKey);
+        if (target == null
+                || !HorizonEngine.supportsInstance(target.getMinecraftVersionId(), target.getLoader())) {
+            horizonInstance = null;
+            horizonEngineAvailable = false;
+            return null;
+        }
+
+        horizonInstance = target;
+        String deviceProblem = HorizonEngine.deviceProblem(activity);
+        horizonEngineAvailable = deviceProblem == null;
+        GameEngine savedEngine = EnginePreferences.get(activity, settingsKey);
+        selectedGameEngineIndex = savedEngine == GameEngine.HORIZON && horizonEngineAvailable ? 1 : 0;
+
+        LinearLayout section = createSection();
+        addSectionTitle(
+                section,
+                "Game Engine",
+                "Java is the default. Horizon (Rust) is an optional experimental engine for vanilla Minecraft "
+                        + HorizonEngine.MINECRAFT_VERSION + " only."
+        );
+
+        String[] labels = {
+                "Java (default)",
+                "Horizon (Rust) — experimental"
+        };
+        gameEngineDropdown = new MaterialAutoCompleteTextView(activity);
+        gameEngineDropdown.setInputType(InputType.TYPE_NULL);
+        gameEngineDropdown.setSingleLine(true);
+        gameEngineDropdown.setAdapter(new ArrayAdapter<>(
+                activity, android.R.layout.simple_list_item_1, labels));
+        gameEngineDropdown.setText(labels[selectedGameEngineIndex], false);
+        gameEngineDropdown.setOnClickListener(view -> {
+            if (horizonEngineAvailable) gameEngineDropdown.showDropDown();
+        });
+        gameEngineDropdown.setOnItemClickListener((parent, view, position, id) -> {
+            Object clicked = parent.getItemAtPosition(position);
+            String clickedLabel = clicked == null ? "" : clicked.toString();
+            selectedGameEngineIndex = labels[1].equals(clickedLabel) ? 1 : 0;
+            gameEngineDropdown.setText(labels[selectedGameEngineIndex], false);
+        });
+        if (!horizonEngineAvailable) {
+            gameEngineDropdown.setEnabled(false);
+            gameEngineDropdown.setAlpha(0.62f);
+            selectedGameEngineIndex = 0;
+            gameEngineDropdown.setText(labels[0], false);
+        }
+
+        TextInputLayout layout = createDropdownLayout("Game Engine");
+        layout.addView(gameEngineDropdown, matchWrap());
+        section.addView(layout, matchWrap());
+
+        TextView requirementTitle = new TextView(activity);
+        requirementTitle.setText("IMPORTANT — Minecraft ownership required");
+        requirementTitle.setTextSize(12);
+        requirementTitle.setTypeface(requirementTitle.getTypeface(), Typeface.BOLD);
+        requirementTitle.setTextColor(LauncherDialogStyle.COLOR_TEXT_PRIMARY);
+        requirementTitle.setPadding(0, dp(8), 0, 0);
+        section.addView(requirementTitle, matchWrap());
+
+        TextView requirements = new TextView(activity);
+        requirements.setTextSize(12);
+        requirements.setTextColor(LauncherDialogStyle.COLOR_TEXT_SECONDARY);
+        requirements.setPadding(0, dp(3), 0, 0);
+        requirements.setText(
+                "Horizon does not bypass Minecraft ownership or Microsoft authentication. "
+                        + "It still requires the legitimate Minecraft " + HorizonEngine.MINECRAFT_VERSION
+                        + " game files/JAR, and you must be signed in to a Microsoft account that owns "
+                        + "Minecraft: Java Edition. DroidBridge verifies the owning account before "
+                        + "preparing or launching the 26.3 files. Without a verified owning account, "
+                        + "Horizon will not launch."
+        );
+        section.addView(requirements, matchWrap());
+
+        if (!horizonEngineAvailable && deviceProblem != null) {
+            TextView unavailable = new TextView(activity);
+            unavailable.setText("Horizon unavailable on this device/build: " + deviceProblem);
+            unavailable.setTextSize(12);
+            unavailable.setTypeface(unavailable.getTypeface(), Typeface.BOLD);
+            unavailable.setTextColor(LauncherDialogStyle.COLOR_TEXT_SECONDARY);
+            unavailable.setPadding(0, dp(8), 0, 0);
+            section.addView(unavailable, matchWrap());
+        } else {
+            MaterialButton advanced = new MaterialButton(
+                    activity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle);
+            advanced.setText("Horizon Advanced Settings");
+            advanced.setAllCaps(false);
+            advanced.setOnClickListener(view -> EngineLauncher.showEngineSettings(
+                    activity,
+                    new EngineLauncher.Target(
+                            settingsKey,
+                            target.getName(),
+                            target.getMinecraftVersionId(),
+                            target.getLoader(),
+                            target.getGameDirectory()
+                    )
+            ));
+            LinearLayout.LayoutParams advancedParams = matchWrap();
+            advancedParams.setMargins(0, dp(8), 0, 0);
+            section.addView(advanced, advancedParams);
+        }
         return section;
     }
 
@@ -1164,6 +1282,16 @@ public final class PerInstanceSettingsDialog {
             settings.ramMb = InstanceLaunchSettings.RAM_DEFAULT;
         }
 
+        if (horizonInstance != null) {
+            EnginePreferences.set(
+                    activity,
+                    settingsKey,
+                    selectedGameEngineIndex == 1 && horizonEngineAvailable
+                            ? GameEngine.HORIZON
+                            : GameEngine.JAVA
+            );
+        }
+
         // Only the instance's exact ID owns these settings; other aliases can be a
         // shared Minecraft version or a duplicate display name.
         InstanceLaunchSettings.save(activity, settingsKey, settings);
@@ -1188,6 +1316,7 @@ public final class PerInstanceSettingsDialog {
 
     private void clearAllAliases() {
         InstanceLaunchSettings.clear(activity, settingsKey);
+        EnginePreferences.set(activity, settingsKey, null);
         LauncherInstance target = LauncherInstanceManager.findByNameOrId(activity, settingsKey);
         if (target != null) {
             GraphicsBackendHelper.applyForSavedInstanceSettings(

@@ -13,10 +13,7 @@ import android.app.Activity;
 import android.content.Intent;
 import android.util.TypedValue;
 import android.widget.CheckBox;
-import android.view.View;
 import android.widget.LinearLayout;
-import android.widget.RadioButton;
-import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -42,9 +39,9 @@ import ca.dnamobile.droidbridgelauncher.settings.LauncherPreferences;
 /**
  * Picks the engine for a Play press.
  *
- * Every launch path calls {@link #interceptLaunch} before it starts GameActivity. Instances
- * the Horizon engine cannot run (any version but 26.3, any mod loader, or a device or build
- * without the engine) return false at once and launch exactly as before.
+ * Horizon is opt-in per instance. Every launch path calls {@link #interceptLaunch} before it
+ * starts GameActivity. Java remains the default unless the player explicitly selects Horizon
+ * in that instance's Per Instance Settings. No launch-time engine chooser is shown.
  */
 public final class EngineLauncher {
     private static final String HORIZON_LABEL = "Horizon (Rust)";
@@ -85,25 +82,24 @@ public final class EngineLauncher {
     /**
      * Handles a Play press when the Horizon engine is involved.
      *
-     * @param javaLaunch the caller's normal Java-engine launch, run when the player picks Java
-     * @return true when this call took over (it started Horizon or is asking the player);
-     *         false when the caller should launch with the Java engine itself, right away
+     * @param javaLaunch retained for call-site compatibility; Java remains the caller's normal path
+     * @return true when this call started Horizon; false when the caller should launch Java
      */
     public static boolean interceptLaunch(
             @NonNull Activity activity,
             @NonNull Target target,
             @Nullable String quickPlayWorld,
             @Nullable String quickPlayServer,
-            @NonNull Runnable javaLaunch
+            @NonNull Runnable ignoredJavaLaunch
     ) {
         if (!offersEngineChoice(activity, target)) return false;
         GameEngine saved = EnginePreferences.get(activity, target.instanceKey);
-        if (saved == GameEngine.JAVA) return false;
-        if (saved == GameEngine.HORIZON) {
-            startHorizon(activity, target, quickPlayWorld, quickPlayServer);
-            return true;
+        if (saved != GameEngine.HORIZON) {
+            // Java is deliberately the default. A missing preference never prompts and never
+            // opts the player into the experimental Rust engine.
+            return false;
         }
-        showChooser(activity, target, quickPlayWorld, quickPlayServer, javaLaunch);
+        startHorizon(activity, target, quickPlayWorld, quickPlayServer);
         return true;
     }
 
@@ -111,12 +107,11 @@ public final class EngineLauncher {
     @NonNull
     public static String engineMenuLabel(@NonNull Activity activity, @NonNull Target target) {
         GameEngine saved = EnginePreferences.get(activity, target.instanceKey);
-        String current = saved == GameEngine.HORIZON ? HORIZON_LABEL
-                : saved == GameEngine.JAVA ? JAVA_LABEL : "Ask on Play";
+        String current = saved == GameEngine.HORIZON ? HORIZON_LABEL : JAVA_LABEL;
         return "Game Engine: " + current;
     }
 
-    /** Lets the player change the saved engine of an instance, or open Horizon's settings. */
+    /** Advanced Horizon controls/graphics for an instance that has Horizon available. */
     public static void showEngineSettings(@NonNull Activity activity, @NonNull Target target) {
         if (!offersEngineChoice(activity, target)) {
             String problem = HorizonEngine.supportsInstance(target.minecraftVersionId, target.loader)
@@ -126,28 +121,18 @@ public final class EngineLauncher {
                     Toast.LENGTH_LONG).show();
             return;
         }
-        GameEngine saved = EnginePreferences.get(activity, target.instanceKey);
         int pad = Math.round(20 * activity.getResources().getDisplayMetrics().density);
         LinearLayout content = new LinearLayout(activity);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(pad, pad / 2, pad, 0);
 
-        RadioGroup engines = new RadioGroup(activity);
-        RadioButton ask = new RadioButton(activity);
-        ask.setId(View.generateViewId());
-        ask.setText("Ask every time I press Play");
-        RadioButton java = new RadioButton(activity);
-        java.setId(View.generateViewId());
-        java.setText(JAVA_LABEL + " — every feature, Fabric/Forge mods");
-        RadioButton horizon = new RadioButton(activity);
-        horizon.setId(View.generateViewId());
-        horizon.setText(HORIZON_LABEL + " — faster loading, less memory, vanilla only");
-        engines.addView(ask);
-        engines.addView(java);
-        engines.addView(horizon);
-        engines.check(saved == GameEngine.JAVA ? java.getId()
-                : saved == GameEngine.HORIZON ? horizon.getId() : ask.getId());
-        content.addView(engines);
+        TextView note = new TextView(activity);
+        note.setText("The game engine itself is selected in this instance's Per Instance Settings. "
+                + "These are advanced Horizon options used only when Horizon is enabled for a "
+                + "vanilla Minecraft " + HorizonEngine.MINECRAFT_VERSION + " instance.");
+        note.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        note.setPadding(0, 0, 0, pad / 2);
+        content.addView(note);
 
         CheckBox controls = new CheckBox(activity);
         controls.setText("Use DroidBridge controls in Horizon (touch layout, virtual mouse, "
@@ -201,17 +186,12 @@ public final class EngineLauncher {
         scroll.addView(content);
 
         new MaterialAlertDialogBuilder(activity)
-                .setTitle("Game engine for " + target.displayName)
+                .setTitle("Horizon advanced settings")
                 .setView(scroll)
                 .setPositiveButton("Save", (dialog, which) -> {
-                    int checked = engines.getCheckedRadioButtonId();
-                    GameEngine engine = checked == java.getId() ? GameEngine.JAVA
-                            : checked == horizon.getId() ? GameEngine.HORIZON : null;
-                    EnginePreferences.set(activity, target.instanceKey, engine);
                     EnginePreferences.setUseDroidBridgeControlsForHorizon(activity, controls.isChecked());
-                    LauncherLogManager.append("Engine choice for " + target.instanceKey + ": "
-                            + (engine == null ? "ask" : engine.id)
-                            + " droidbridgeControls=" + controls.isChecked());
+                    LauncherLogManager.append("Horizon options for " + target.instanceKey
+                            + ": droidbridgeControls=" + controls.isChecked());
                 })
                 .setNeutralButton("Horizon Settings", (dialog, which) ->
                         HorizonSettingsDialog.show(activity))
@@ -296,54 +276,6 @@ public final class EngineLauncher {
         } catch (Throwable ignored) {
             return null;
         }
-    }
-
-    private static void showChooser(
-            @NonNull Activity activity,
-            @NonNull Target target,
-            @Nullable String quickPlayWorld,
-            @Nullable String quickPlayServer,
-            @NonNull Runnable javaLaunch
-    ) {
-        // An AlertDialog shows either a message or a list, so the checkbox is its own view.
-        int padding = Math.round(20 * activity.getResources().getDisplayMetrics().density);
-        LinearLayout content = new LinearLayout(activity);
-        content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(padding, padding / 2, padding, 0);
-        TextView message = new TextView(activity);
-        message.setText(target.displayName + " is vanilla " + HorizonEngine.MINECRAFT_VERSION
-                + ", so it can run on either engine.\n\n"
-                + HORIZON_LABEL + " (experimental): Minecraft rewritten in Rust. Loads worlds "
-                + "faster and uses less memory. Vanilla only: Fabric, Forge and other Java mods "
-                + "do not run, and some features may be missing or behave differently.\n\n"
-                + JAVA_LABEL + ": Mojang's game on DroidBridge's Java runtime, with every "
-                + "DroidBridge feature.\n\nBoth engines use this instance's worlds. You can change "
-                + "the choice later in the instance's settings.");
-        message.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        content.addView(message);
-        CheckBox remember = new CheckBox(activity);
-        remember.setText("Remember for this instance");
-        content.addView(remember);
-        ScrollView scroll = new ScrollView(activity);
-        scroll.addView(content);
-
-        new MaterialAlertDialogBuilder(activity)
-                .setTitle("Choose a game engine")
-                .setView(scroll)
-                .setPositiveButton(HORIZON_LABEL, (dialog, which) -> {
-                    if (remember.isChecked()) {
-                        EnginePreferences.set(activity, target.instanceKey, GameEngine.HORIZON);
-                    }
-                    startHorizon(activity, target, quickPlayWorld, quickPlayServer);
-                })
-                .setNegativeButton(JAVA_LABEL, (dialog, which) -> {
-                    if (remember.isChecked()) {
-                        EnginePreferences.set(activity, target.instanceKey, GameEngine.JAVA);
-                    }
-                    javaLaunch.run();
-                })
-                .setNeutralButton(android.R.string.cancel, null)
-                .show();
     }
 
     private static void startHorizon(

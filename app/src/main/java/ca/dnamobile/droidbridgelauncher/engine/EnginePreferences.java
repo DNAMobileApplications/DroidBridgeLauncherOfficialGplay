@@ -16,7 +16,8 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 /**
- * The engine each instance should start with. No saved choice means "ask on Play".
+ * The engine each instance should start with. No saved choice means Java (the default).
+ * Horizon is used only when the player explicitly enables it for that instance.
  * Keys are the same instance keys the launcher already uses for per-instance settings.
  */
 public final class EnginePreferences {
@@ -35,7 +36,7 @@ public final class EnginePreferences {
         }
     }
 
-    /** Saves the engine for this instance; {@code null} goes back to asking on Play. */
+    /** Saves the engine for this instance; {@code null} returns to the Java default. */
     public static void set(@NonNull Context context, @NonNull String instanceKey, @Nullable GameEngine engine) {
         SharedPreferences.Editor editor = prefs(context).edit();
         if (engine == null) {

@@ -453,6 +453,13 @@ public final class HorizonLaunchActivity extends AppCompatActivity {
 
     private void startEngine(@NonNull File session) {
         if (finished) return;
+
+        // Do not redisplay an error left by a previous engine process.
+        File previousError = new File(HorizonEngine.engineHome(this), ENGINE_ERROR_FILE);
+        if (previousError.isFile() && !previousError.delete()) {
+            LauncherLogManager.append("Horizon: could not clear the previous engine error file");
+        }
+
         Intent source = getIntent();
         Intent intent = new Intent(this, HorizonActivity.class);
         // The game gets its own task, replacing any left-over one, so a new launch never
@@ -499,6 +506,10 @@ public final class HorizonLaunchActivity extends AppCompatActivity {
                 .setTitle("Horizon stopped")
                 .setMessage(error)
                 .setCancelable(false)
+                .setNeutralButton("Share crash report", (dialog, which) -> {
+                    LauncherLogManager.shareLatestHorizonCrashReport(this);
+                    finishHandoff();
+                })
                 .setPositiveButton(android.R.string.ok, (dialog, which) -> finishHandoff())
                 .show();
     }

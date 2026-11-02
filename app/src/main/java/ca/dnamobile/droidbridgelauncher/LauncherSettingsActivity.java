@@ -329,6 +329,8 @@ public final class LauncherSettingsActivity extends ControllerNavigationActivity
 
     // Change this URL to your official DroidBridge renderer download page.
     private static final String RENDERER_DOWNLOAD_URL = "https://github.com/MobileGL-Dev/MobileGlues-release/releases";
+    private static final String DROIDBRIDGE_GITHUB_REPOSITORY_URL =
+            "https://github.com/DNAMobileApplications/DroidBridgeLauncherOfficialGplay";
 
     private ActivityLauncherSettingsBinding binding;
     private boolean settingsUiInitialized;
@@ -4825,6 +4827,7 @@ public final class LauncherSettingsActivity extends ControllerNavigationActivity
         binding.buttonShareLatestLog.setOnClickListener(view -> LauncherLogManager.shareLatestLog(this));
         binding.buttonShareLauncherLogs.setOnClickListener(view -> LauncherDiagnosticLog.share(this));
         setupUpdateCheckerSettings();
+        setupGithubRepositoryLink();
     }
 
 
@@ -9649,6 +9652,66 @@ public final class LauncherSettingsActivity extends ControllerNavigationActivity
         );
         buttonParams.topMargin = dp(6);
         container.addView(checkNow, buttonParams);
+    }
+
+    private void setupGithubRepositoryLink() {
+        if (binding == null || binding.buttonShareLatestLog == null) return;
+        if (!(binding.buttonShareLatestLog.getParent() instanceof ViewGroup)) return;
+
+        ViewGroup parent = (ViewGroup) binding.buttonShareLatestLog.getParent();
+        if (parent.findViewWithTag("droidbridge_github_repository") != null) return;
+
+        LinearLayout container = new LinearLayout(this);
+        container.setTag("droidbridge_github_repository");
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.setPadding(0, dp(12), 0, 0);
+
+        TextView title = new TextView(this);
+        title.setText("GitHub Repository");
+        title.setTextSize(16f);
+        title.setGravity(Gravity.START);
+        container.addView(title, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+
+        TextView summary = new TextView(this);
+        summary.setText("View the official DroidBridge Launcher source code on GitHub.");
+        summary.setTextSize(13f);
+        summary.setPadding(0, dp(2), 0, dp(6));
+        container.addView(summary, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+
+        MaterialButton openRepository = new MaterialButton(
+                this,
+                null,
+                com.google.android.material.R.attr.materialButtonOutlinedStyle
+        );
+        openRepository.setText("Open GitHub Repository");
+        openRepository.setAllCaps(false);
+        openRepository.setOnClickListener(view -> {
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(DROIDBRIDGE_GITHUB_REPOSITORY_URL)));
+            } catch (Throwable throwable) {
+                Logging.e("LauncherSettings", "Unable to open DroidBridge GitHub repository", throwable);
+                Toast.makeText(
+                        this,
+                        "Unable to open the GitHub repository.",
+                        Toast.LENGTH_SHORT
+                ).show();
+            }
+        });
+        container.addView(openRepository, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+
+        parent.addView(container, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
     }
 
     private void setupPrivacyPolicySettings() {

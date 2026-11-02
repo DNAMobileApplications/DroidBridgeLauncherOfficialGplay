@@ -12,12 +12,17 @@
 
 package dev.horizon.android;
 
+import android.app.ActivityManager;
 import android.content.Intent;
+import android.os.Build;
 import android.os.Bundle;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.util.Log;
+import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
 import android.view.KeyEvent;
+import android.view.Window;
 import android.view.MotionEvent;
 
 import java.io.File;
@@ -65,6 +70,8 @@ public final class HorizonActivity extends android.app.NativeActivity {
     private static final String ENV_HOST_CONTROLS = "IRONBRIDGE_HORIZON_HOST_CONTROLS";
     private static final String ENV_RENDERER = "IRONBRIDGE_HORIZON_RENDERER";
     private static final String ENV_VULKAN_DRIVER = "IRONBRIDGE_HORIZON_VULKAN_DRIVER";
+    /** Private app-owned directory used when shared/emulated storage cannot provide flock(). */
+    private static final String ENV_LOCK_DIR = "IRONBRIDGE_HORIZON_LOCK_DIR";
     /**
      * Horizon's data collection (crates/horizon-telemetry): "off" sends nothing, not even the
      * anonymous "I'm playing" ping. DroidBridge never shows Horizon's consent screen, and its
@@ -72,14 +79,29 @@ public final class HorizonActivity extends android.app.NativeActivity {
      */
     private static final String ENV_TELEMETRY_URL = "HORIZON_TELEMETRY_URL";
 
-    static { System.loadLibrary("horizon_android"); }
+    private static volatile boolean nativeLibraryLoaded;
+
+    private static synchronized void ensureNativeLibraryLoaded() {
+        if (nativeLibraryLoaded) return;
+        System.loadLibrary("horizon_android");
+        nativeLibraryLoaded = true;
+    }
 
     private native void nativeDocumentResult(int request, int result, String uri);
 
     private HorizonControlsHost controls;
+    private volatile boolean quitting;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        // NativeActivity can briefly expose its own title/window before the first native frame.
+        // DroidBridge owns the whole launch UI, so keep that transition black and titleless.
+        try {
+            requestWindowFeature(Window.FEATURE_NO_TITLE);
+            setTitle("");
+            getWindow().setBackgroundDrawable(new ColorDrawable(Color.BLACK));
+        } catch (Throwable ignored) {
+        }
         // NativeActivity starts the engine thread inside super.onCreate, so the handoff
         // has to be in the environment first.
         Intent intent = getIntent();
@@ -102,9 +124,24 @@ public final class HorizonActivity extends android.app.NativeActivity {
         setEnv(ENV_HOST_CONTROLS, hostControls ? "1" : null);
         setEnv(ENV_TELEMETRY_URL, "off");
         setEnv("HORIZON_NO_HEARTBEAT", "1");
+        File lockDir = new File(getCacheDir(), "horizon-world-locks");
+        //noinspection ResultOfMethodCallIgnored
+        lockDir.mkdirs();
+        setEnv(ENV_LOCK_DIR, lockDir.getAbsolutePath());
         setEnv(ENV_RENDERER, extra(intent, EXTRA_RENDERER));
         String vulkanDriver = prepareVulkanDriver(intent);
+
+        // Load Horizon only after every host handoff variable is in place. Some native/global
+        // initialization is process-wide; loading the .so from the class initializer can expose
+        // one frame of Horizon's standalone state before DroidBridge's autoplay flags exist.
+        ensureNativeLibraryLoaded();
         super.onCreate(savedInstanceState);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                getSplashScreen().setOnExitAnimationListener(splash -> splash.remove());
+            } catch (Throwable ignored) {
+            }
+        }
 
         if (hostControls) {
             controls = new HorizonControlsHost(this, gameDir == null ? null : new File(gameDir),
@@ -199,6 +236,62 @@ public final class HorizonActivity extends android.app.NativeActivity {
         super.onPause();
     }
 
+
+    /**
+     * Called by Horizon's Rust game thread only after game::run() has returned and the
+     * current world/session lock has been dropped. NativeActivity cannot host another
+     * Horizon run in this process, so remove the task and end the dedicated :horizon process.
+     */
+    @Keep
+    public void quit() {
+        if (quitting) return;
+        quitting = true;
+        Log.i(TAG, "Horizon native loop finished; removing task and closing dedicated :horizon process");
+
+        // Horizon is launched with FLAG_ACTIVITY_NEW_TASK, so it owns a separate Android task.
+        // finishAndRemoveTask() normally removes its Recents card, but some Android builds commit
+        // that removal asynchronously. Remove the exact AppTask by ID first, then give
+        // ActivityTaskManager enough time to persist the removal before this process exits.
+        runOnUiThread(this::removeOwnTaskFromRecents);
+
+        Thread exitThread = new Thread(() -> {
+            try {
+                Thread.sleep(1200L);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+            System.exit(0);
+        }, "droidbridge-horizon-quit");
+        exitThread.setDaemon(false);
+        exitThread.start();
+    }
+
+    private void removeOwnTaskFromRecents() {
+        final int ownTaskId = getTaskId();
+        try {
+            ActivityManager manager = (ActivityManager) getSystemService(ACTIVITY_SERVICE);
+            if (manager != null) {
+                for (ActivityManager.AppTask task : manager.getAppTasks()) {
+                    ActivityManager.RecentTaskInfo info = task.getTaskInfo();
+                    if (info != null && info.taskId == ownTaskId) {
+                        Log.i(TAG, "Removing Horizon AppTask from Recents taskId=" + ownTaskId);
+                        task.finishAndRemoveTask();
+                        return;
+                    }
+                }
+            }
+        } catch (Throwable throwable) {
+            Log.w(TAG, "Could not remove Horizon AppTask taskId=" + ownTaskId, throwable);
+        }
+
+        try {
+            finishAndRemoveTask();
+        } catch (Throwable throwable) {
+            Log.w(TAG, "Could not remove finished Horizon task", throwable);
+            finish();
+        }
+    }
+
     @Override
     protected void onDestroy() {
         if (controls != null) {
@@ -206,6 +299,13 @@ public final class HorizonActivity extends android.app.NativeActivity {
             controls = null;
         }
         super.onDestroy();
+        // Match Horizon's own Android host. If Android permanently finishes the native
+        // Activity outside the explicit Rust quit callback, this process cannot safely be
+        // reused for another native event loop. Home/Recents does not finish the Activity.
+        if (isFinishing() && !isChangingConfigurations() && !quitting) {
+            Log.i(TAG, "Horizon Activity finished; closing dedicated :horizon process");
+            System.exit(0);
+        }
     }
 
     /** Controller buttons the engine left to DroidBridge's mapper (host controls only). */

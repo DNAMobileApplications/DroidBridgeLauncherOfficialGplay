@@ -205,8 +205,8 @@ def apkFileSafeValue = { Object value, String fallback ->
     return safeValue.isEmpty() ? fallback : safeValue
 }
 
-def launcherVersionCode = 128
-def launcherVersionName = '0.10.31'
+def launcherVersionCode = 130
+def launcherVersionName = '0.11.02'
 def launcherVersionNameForFile = apkFileSafeValue(launcherVersionName, 'unknown')
 def launcherArchiveName = "DroidBridge-Launcher-v${launcherVersionNameForFile}-build${launcherVersionCode}"
 

@@ -62,7 +62,7 @@ public final class HorizonSettingsDialog {
         TextView note = new TextView(activity);
         note.setText("These are Horizon's engine-side Android settings. DroidBridge stays the launcher; "
                 + "changes apply to the next Horizon launch. Renderer/driver choices in DroidBridge's "
-                + "Game Engine screen can override Horizon's own rendering setting. Input is always "
+                + "Horizon Advanced Settings can override Horizon's own rendering setting. Input is always "
                 + "owned by DroidBridge while Horizon is embedded.");
         note.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         note.setPadding(0, 0, 0, pad / 2);
@@ -201,7 +201,7 @@ public final class HorizonSettingsDialog {
         new MaterialAlertDialogBuilder(activity)
                 .setTitle("Reset Horizon settings?")
                 .setMessage("This resets only the Horizon Android engine settings shown here. "
-                        + "DroidBridge's Game Engine renderer, driver and control choices are separate.")
+                        + "DroidBridge's Horizon Advanced Settings for renderer, driver and controls are separate.")
                 .setPositiveButton("Reset", (dialog, which) -> {
                     try {
                         new Store(activity).resetManagedSettings();

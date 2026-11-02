@@ -59,7 +59,7 @@ public final class StorageLocationDialog {
 
     public static void show(@NonNull Activity activity, @NonNull Listener listener) {
         ScrollView scrollView = new ScrollView(activity);
-        scrollView.setFillViewport(false);
+        scrollView.setFillViewport(true);
 
         LinearLayout root = new LinearLayout(activity);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -162,7 +162,9 @@ public final class StorageLocationDialog {
 
         RecyclerView recyclerView = new RecyclerView(activity);
         recyclerView.setLayoutManager(new LinearLayoutManager(activity));
-        recyclerView.setNestedScrollingEnabled(false);
+        recyclerView.setNestedScrollingEnabled(true);
+        recyclerView.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
+        recyclerView.setVerticalScrollBarEnabled(true);
 
         StorageLocationAdapter adapter = new StorageLocationAdapter(new StorageLocationAdapter.Listener() {
             @Override
@@ -185,9 +187,14 @@ public final class StorageLocationDialog {
         adapter.submit(StorageLocationStore.getLocations(activity), StorageLocationStore.getSelectedLocationId(activity));
         recyclerView.setAdapter(adapter);
 
+        // Keep the actions/header visible while allowing any number of storage roots.
+        // The old fixed, non-scrolling 270dp RecyclerView made the third+ locations
+        // unreachable in landscape. Give the list a sensible viewport and let it scroll.
+        int screenHeight = activity.getResources().getDisplayMetrics().heightPixels;
+        int listHeight = Math.max(dp(activity, 220), Math.min(dp(activity, 360), screenHeight / 3));
         LinearLayout.LayoutParams recyclerParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(activity, 270)
+                listHeight
         );
         recyclerParams.topMargin = dp(activity, 4);
         section.addView(recyclerView, recyclerParams);

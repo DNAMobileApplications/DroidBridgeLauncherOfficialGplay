@@ -201,7 +201,6 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
     private static final int MENU_SHARE_CRASH_LOG = 12;
     private static final int MENU_MIGRATE_CLEANROOM = 13;
     private static final int MENU_REPAIR_CLEANROOM = 14;
-    private static final int MENU_GAME_ENGINE = 15;
 
     private ActivityInstanceDetailsBinding binding;
     private AccountStore accountStore;
@@ -987,11 +986,6 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
         addInstanceSettingsMenuRow(menuLayout, R.string.instance_settings_edit_name, dialogRef, MENU_EDIT_INSTANCE_NAME);
         addInstanceSettingsMenuRow(menuLayout, R.string.instance_settings_edit_icon, dialogRef, MENU_EDIT_INSTANCE_ICON);
         addInstanceSettingsMenuRow(menuLayout, "Per Instance Settings", dialogRef, MENU_PER_INSTANCE_SETTINGS);
-        EngineLauncher.Target engineTarget = buildEngineTarget();
-        if (EngineLauncher.offersEngineChoice(this, engineTarget)) {
-            addInstanceSettingsMenuRow(menuLayout, EngineLauncher.engineMenuLabel(this, engineTarget),
-                    dialogRef, MENU_GAME_ENGINE);
-        }
         addInstanceSettingsMenuRow(menuLayout, "Update Version", dialogRef, MENU_UPDATE_VERSION);
         if (ModpackUpdateManager.readInstalledModpackInfo(rootDirectory, gameDirectory) != null) {
             addInstanceSettingsMenuRow(menuLayout, "Update Modpack", dialogRef, MENU_UPDATE_MODPACK);
@@ -1131,10 +1125,6 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
         }
         if (itemId == MENU_EXPORT_MODPACK) {
             showExportModpackPlatformDialog();
-            return;
-        }
-        if (itemId == MENU_GAME_ENGINE) {
-            EngineLauncher.showEngineSettings(this, buildEngineTarget());
             return;
         }
         if (itemId == MENU_IMPORT_MODPACK) {
