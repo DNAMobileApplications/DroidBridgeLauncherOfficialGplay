@@ -8724,6 +8724,13 @@ public class GameActivity extends AppCompatActivity {
             return PreLaunchMicrosoftSessionResult.warning("Offline/local accounts are no longer supported. Sign in with Microsoft.");
         }
 
+        if (account.isDemoAccount()) {
+            // No Minecraft profile to check (the account doesn't own Java Edition), and the
+            // demo is singleplayer only, so the token is never used online.
+            return PreLaunchMicrosoftSessionResult.ok(
+                    "This Microsoft account doesn't own Minecraft: Java Edition: playing the demo.");
+        }
+
         if (isNullOrBlank(account.minecraftAccessToken)) {
             return PreLaunchMicrosoftSessionResult.refreshRequired(
                     "The saved Microsoft account needs a fresh Minecraft access token."
@@ -10012,6 +10019,8 @@ public class GameActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        // Picks up "Repeat held keyboard keys" for the keyboard paths without a Context.
+        LauncherPreferences.isPhysicalKeyRepeatEnabled(this);
         // The PiP window was expanded back into the existing running game.
         // Only a subsequent close of a new PiP session should end the JVM.
         if (!isInPictureInPictureMode() && !pictureInPictureEnterRequested) {

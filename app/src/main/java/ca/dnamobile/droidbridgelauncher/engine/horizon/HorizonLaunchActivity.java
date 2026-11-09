@@ -144,7 +144,18 @@ public final class HorizonLaunchActivity extends AppCompatActivity {
         startPreflight();
     }
 
+    private static final String DEMO_MESSAGE = "This Microsoft account doesn't own Minecraft: Java "
+            + "Edition, so it can only play the demo, and the demo needs the Java engine. Set this "
+            + "instance's engine to Java, or sign in with an account that owns the game.";
+
     private void startPreflight() {
+        // A demo account (no Java Edition) plays Minecraft's demo, which only the Java engine has:
+        // the Rust engine would run the full game.
+        if (LauncherSecurity.isDemoAccount(loadAccount())) {
+            LauncherLogManager.append("Horizon: refused for a demo account (no Java Edition)");
+            fail(DEMO_MESSAGE, true, false);
+            return;
+        }
         if (finished) return;
         showProgress("Checking your Microsoft account...", null, -1, 0, 0, false);
         checkAccountInBackground();
@@ -152,8 +163,8 @@ public final class HorizonLaunchActivity extends AppCompatActivity {
 
     private void askAboutRunningGame() {
         new MaterialAlertDialogBuilder(this)
-                .setTitle("Horizon is still running")
-                .setMessage("A Horizon game is still open in the background. Go back to it, or close "
+                .setTitle("The Rust engine is still running")
+                .setMessage("A Rust engine game is still open in the background. Go back to it, or close "
                         + "it and start this launch? Closing it does not save anything the game "
                         + "has not already saved.")
                 .setCancelable(false)
@@ -173,7 +184,7 @@ public final class HorizonLaunchActivity extends AppCompatActivity {
     /** Ends the engine process (game or installer), then continues. */
     private void restartEngineThen(@NonNull Runnable next) {
         if (finished) return;
-        showProgress("Closing the running Horizon engine...", null, -1, 0, 0, false);
+        showProgress("Closing the running Rust engine...", null, -1, 0, 0, false);
         LauncherLogManager.append("Horizon: ending the engine process before a new launch");
         HorizonSession.endEngine(this, () -> {
             if (!finished) next.run();
@@ -301,7 +312,9 @@ public final class HorizonLaunchActivity extends AppCompatActivity {
         showProgress("Checking your Minecraft license...", null, -1, 0, 0, false);
         Thread thread = new Thread(() -> {
             try {
-                LauncherSecurity.requireOfficialBuildAndMicrosoftSession(this, loadAccount(), "launch Minecraft");
+                AccountStore.Account checked = loadAccount();
+                if (LauncherSecurity.isDemoAccount(checked)) throw new SecurityException(DEMO_MESSAGE);
+                LauncherSecurity.requireOfficialBuildAndMicrosoftSession(this, checked, "launch Minecraft");
                 mainHandler.post(this::ensureResources);
             } catch (SecurityException exception) {
                 mainHandler.post(() -> fail(exception.getMessage() == null
@@ -321,7 +334,7 @@ public final class HorizonLaunchActivity extends AppCompatActivity {
 
     private void ensureResources() {
         if (finished) return;
-        showProgress("Checking Horizon's Minecraft " + HorizonEngine.MINECRAFT_VERSION + " files...",
+        showProgress("Checking the Rust engine's Minecraft " + HorizonEngine.MINECRAFT_VERSION + " files...",
                 "Looking for a finished installation", -1, 0, 0, false);
         installAnswered = false;
         downloadStartedAtBytes = -1;
@@ -351,8 +364,8 @@ public final class HorizonLaunchActivity extends AppCompatActivity {
             LauncherLogManager.append("Horizon: the engine process did not answer the installer request");
             dismissProgress();
             new MaterialAlertDialogBuilder(this)
-                    .setTitle("Horizon isn't responding")
-                    .setMessage("The Horizon engine did not answer. It may still be busy with an "
+                    .setTitle("The Rust engine isn't responding")
+                    .setMessage("The Rust engine did not answer. It may still be busy with an "
                             + "earlier game. Restart the engine and try again?")
                     .setCancelable(false)
                     .setPositiveButton("Restart engine", (dialog, which) ->
@@ -407,7 +420,7 @@ public final class HorizonLaunchActivity extends AppCompatActivity {
                 String detail = amount(done, total, bytes)
                         + (bytes && total > 0 ? downloadRate(done, total) : "");
                 showProgressDetail("Installing Minecraft " + HorizonEngine.MINECRAFT_VERSION
-                        + " for Horizon. This happens once; keep DroidBridge open.",
+                        + " for the Rust engine. This happens once; keep DroidBridge open.",
                         stageText, total > 0 ? percent(done, total) : -1, detail);
                 break;
             }
@@ -419,7 +432,7 @@ public final class HorizonLaunchActivity extends AppCompatActivity {
             default: {
                 String error = data.getString(HorizonInstallService.KEY_ERROR, "Unknown error");
                 LauncherLogManager.append("Horizon: resource install failed: " + error);
-                fail("Installing Minecraft " + HorizonEngine.MINECRAFT_VERSION + " for Horizon failed:\n\n"
+                fail("Installing Minecraft " + HorizonEngine.MINECRAFT_VERSION + " for the Rust engine failed:\n\n"
                         + error + "\n\nFiles that finished downloading are kept.", false, true);
                 break;
             }
@@ -430,11 +443,18 @@ public final class HorizonLaunchActivity extends AppCompatActivity {
 
     private void writeSessionAndStart() {
         if (finished) return;
-        showProgress("Starting Horizon (Rust)...", null, -1, 0, 0, false);
+        showProgress("Starting the Rust engine...", null, -1, 0, 0, false);
         Thread thread = new Thread(() -> {
             try {
                 AccountStore.Account account = loadAccount();
+                if (LauncherSecurity.isDemoAccount(account)) throw new SecurityException(DEMO_MESSAGE);
                 LauncherSecurity.requireOfficialBuildAndMicrosoftSession(this, account, "launch Minecraft");
+                // Native mods built into this DroidBridge start out not installed in an instance,
+                // and ones imported while they waited for a build are installed now.
+                String gameDirPath = getIntent() == null ? null : getIntent().getStringExtra(EXTRA_GAME_DIR);
+                if (gameDirPath != null && !gameDirPath.trim().isEmpty()) {
+                    HorizonAddons.prepareNativeMods(this, new File(gameDirPath));
+                }
                 File session = writeSessionFile(this, account);
                 mainHandler.post(() -> startEngine(session));
             } catch (SecurityException exception) {
@@ -443,7 +463,7 @@ public final class HorizonLaunchActivity extends AppCompatActivity {
                         true, false));
             } catch (Throwable throwable) {
                 Logging.e(TAG, "Horizon launch preparation failed", throwable);
-                mainHandler.post(() -> fail("Could not prepare the Horizon launch: " + describe(throwable),
+                mainHandler.post(() -> fail("Could not prepare the Rust engine launch: " + describe(throwable),
                         false, true));
             }
         }, "DroidBridgeHorizonHandoff");
@@ -486,7 +506,7 @@ public final class HorizonLaunchActivity extends AppCompatActivity {
             Logging.e(TAG, "Could not start the Horizon engine", throwable);
             //noinspection ResultOfMethodCallIgnored
             session.delete();
-            fail("Could not start the Horizon engine: " + describe(throwable), false, false);
+            fail("Could not start the Rust engine: " + describe(throwable), false, false);
             return;
         }
         engineStarted = true;
@@ -503,7 +523,7 @@ public final class HorizonLaunchActivity extends AppCompatActivity {
         }
         LauncherLogManager.append("Horizon: engine stopped with: " + error);
         new MaterialAlertDialogBuilder(this)
-                .setTitle("Horizon stopped")
+                .setTitle("The Rust engine stopped")
                 .setMessage(error)
                 .setCancelable(false)
                 .setNeutralButton("Share crash report", (dialog, which) -> {
@@ -697,7 +717,7 @@ public final class HorizonLaunchActivity extends AppCompatActivity {
             progressDetail.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
             content.addView(progressDetail);
             progressDialog = new MaterialAlertDialogBuilder(this)
-                    .setTitle("Horizon (Rust)")
+                    .setTitle("Rust engine")
                     .setMessage(headline)
                     .setView(content)
                     .setCancelable(false)
@@ -736,7 +756,7 @@ public final class HorizonLaunchActivity extends AppCompatActivity {
         dismissProgress();
         LauncherLogManager.append("Horizon: launch stopped: " + message);
         MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(this)
-                .setTitle("Could not start Horizon")
+                .setTitle("Could not start the Rust engine")
                 .setMessage(message)
                 .setCancelable(false)
                 .setNegativeButton(android.R.string.cancel, (dialog, which) -> finishHandoff());

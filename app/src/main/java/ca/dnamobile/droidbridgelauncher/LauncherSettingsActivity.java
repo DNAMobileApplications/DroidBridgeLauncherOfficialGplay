@@ -114,6 +114,7 @@ import ca.dnamobile.droidbridgelauncher.input.GyroInputController;
 import ca.dnamobile.droidbridgelauncher.instance.LauncherInstance;
 import ca.dnamobile.droidbridgelauncher.instance.LauncherInstanceManager;
 import ca.dnamobile.droidbridgelauncher.legal.LegalLinks;
+import ca.dnamobile.droidbridgelauncher.legal.OpenSourceLicenses;
 import ca.dnamobile.droidbridgelauncher.launcher.RuntimeCompat;
 import ca.dnamobile.droidbridgelauncher.logs.LauncherLogManager;
 import ca.dnamobile.droidbridgelauncher.logs.LauncherDiagnosticLog;
@@ -1036,6 +1037,12 @@ public final class LauncherSettingsActivity extends ControllerNavigationActivity
                 @Override
                 public void onSignedIn(@NonNull AccountStore.Account account) {
                     MicrosoftAccountRegistry.save(LauncherSettingsActivity.this, account);
+                    if (account.isDemoAccount()) {
+                        Toast.makeText(LauncherSettingsActivity.this,
+                                "This Microsoft account doesn't own Minecraft: Java Edition, so it plays "
+                                        + "the Minecraft demo (Java engine).",
+                                Toast.LENGTH_LONG).show();
+                    }
 
                     boolean reopenCapePicker = pendingMicrosoftCapeOpenAfterAuthRefresh;
                     AccountStore.Account uiAccount = restoreActiveAccountAfterCapeAuthRefresh(account);
@@ -2944,6 +2951,30 @@ public final class LauncherSettingsActivity extends ControllerNavigationActivity
         );
         hideCursorSummaryParams.topMargin = dp(2);
         container.addView(hideCursorSummary, hideCursorSummaryParams);
+
+        CheckBox keyRepeat = new CheckBox(this);
+        keyRepeat.setText("Repeat held keyboard keys");
+        keyRepeat.setChecked(LauncherPreferences.isPhysicalKeyRepeatEnabled(this));
+        keyRepeat.setOnCheckedChangeListener((button, checked) ->
+                LauncherPreferences.setPhysicalKeyRepeatEnabled(this, checked));
+        LinearLayout.LayoutParams keyRepeatParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        keyRepeatParams.topMargin = dp(8);
+        container.addView(keyRepeat, keyRepeatParams);
+
+        TextView keyRepeatSummary = new TextView(this);
+        keyRepeatSummary.setTextSize(13f);
+        keyRepeatSummary.setText("Holding a physical keyboard key keeps sending it, like on a PC: hold Q to keep "
+                + "dropping items, hold Backspace to keep deleting. Off: a held key counts as one press. "
+                + "Java and Rust engines.");
+        LinearLayout.LayoutParams keyRepeatSummaryParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        keyRepeatSummaryParams.topMargin = dp(2);
+        container.addView(keyRepeatSummary, keyRepeatSummaryParams);
 
         checkAxiomAndroidCompatibility = new CheckBox(this);
         checkAxiomAndroidCompatibility.setText(R.string.axiom_android_compatibility_title);
@@ -5381,9 +5412,9 @@ public final class LauncherSettingsActivity extends ControllerNavigationActivity
         addStyledDialogCardTitle(card, displayName);
         addStyledDialogInfoText(card,
                 "This runs the jar as a loader installer command, not through the broken Cacio/JLI GUI bridge.\n\n"
-                        + "Zalith does not treat loader installs as a blind desktop GUI jar launch. It builds loader-specific arguments first, then runs the installer with the target game directory already known. "
-                        + "DroidBridge now follows that same direction here: Fabric/Quilt get their CLI installer syntax and Forge/NeoForge use --installClient. "
-                        + "OptiFine is handled as its own standalone loader profile, matching Zalith's flow. BTA installer jars are also handled natively now: DroidBridge downloads BTA's manifest, shows tested/untested/nightly versions, writes the BTA version JSON, and creates a DroidBridge instance without launching the Swing installer.");
+                        + "DroidBridge builds loader-specific arguments first, then runs the installer with the target game directory already known: "
+                        + "Fabric/Quilt get their CLI installer syntax and Forge/NeoForge use --installClient. "
+                        + "OptiFine is installed as its own standalone loader profile. BTA installer jars are also handled natively: DroidBridge downloads BTA's manifest, shows tested/untested/nightly versions, writes the BTA version JSON, and creates a DroidBridge instance without launching the Swing installer.");
 
         TextView argsTitle = new TextView(this);
         argsTitle.setText(R.string.jar_optional_arguments);
@@ -6601,7 +6632,7 @@ public final class LauncherSettingsActivity extends ControllerNavigationActivity
     private void showOptiFineNativeActionDialog(@NonNull Uri jarUri, @NonNull String displayName) {
         String minecraftVersion = inferOptiFineMinecraftVersion(displayName);
         String profileName = buildOptiFineProfileName(displayName);
-        boolean agentsReady = hasZalithStyleOptiFineAgents();
+        boolean agentsReady = hasOptiFineInstallerAgents();
 
         StringBuilder message = new StringBuilder();
         message.append("Install OptiFine as its own DroidBridge instance.\n\n");
@@ -6611,7 +6642,7 @@ public final class LauncherSettingsActivity extends ControllerNavigationActivity
             message.append("Minecraft version: unknown from file name\n");
         }
         message.append("OptiFine profile: ").append(profileName).append("\n\n");
-        message.append("DroidBridge will first make sure the matching vanilla Minecraft version exists in .minecraft/versions, then it will open the OptiFine installer using the same Forge/OptiFine javaagent flow Zalith uses.\n\n");
+        message.append("DroidBridge will first make sure the matching vanilla Minecraft version exists in .minecraft/versions, then it will run the OptiFine installer through DroidBridge's Forge/OptiFine installer agents.\n\n");
         message.append("Do not close DroidBridge until the install progress finishes and the new instance appears.");
 
         if (minecraftVersion.isEmpty()) {
@@ -6739,7 +6770,7 @@ public final class LauncherSettingsActivity extends ControllerNavigationActivity
             throw new IllegalStateException(buildOptiFineInstallerRuntimeError(requiredInstallerJava));
         }
         File javaExecutable = compatibility.javaExecutable;
-        if (!hasZalithStyleOptiFineAgents()) {
+        if (!hasOptiFineInstallerAgents()) {
             throw new IllegalStateException("OptiFine standalone install requires forge_installer.jar and OptiFineRenamer.jar in components.");
         }
 
@@ -7033,7 +7064,7 @@ public final class LauncherSettingsActivity extends ControllerNavigationActivity
             return "--installClient";
         }
         if (isOptiFineInstallerName(lower)) {
-            return hasZalithStyleOptiFineAgents()
+            return hasOptiFineInstallerAgents()
                     ? "Leave empty. DroidBridge will use forge_installer.jar + OptiFineRenamer.jar automatically."
                     : "--installClient";
         }
@@ -7066,7 +7097,7 @@ public final class LauncherSettingsActivity extends ControllerNavigationActivity
             return "--installClient";
         }
         if (isOptiFineInstallerName(lower)) {
-            return hasZalithStyleOptiFineAgents() ? "" : "--installClient";
+            return hasOptiFineInstallerAgents() ? "" : "--installClient";
         }
         if (isBtaInstallerName(lower)) {
             return "";
@@ -7090,7 +7121,7 @@ public final class LauncherSettingsActivity extends ControllerNavigationActivity
             summary.append("\n\nThis jar tried to open a desktop Swing/AWT window. Android cannot display that installer window from DroidBridge. ")
                     .append("Use a command-line mode if the jar provides one, or add a launcher-native installer/extractor path for this specific jar type.");
             if (lowerName.contains("optifine")) {
-                summary.append("\n\nOptiFine should not be launched through Swing/Cacio here. DroidBridge tries Zalith-style Forge/OptiFine javaagents first; reinstall components if forge_installer.jar or OptiFineRenamer.jar are missing.");
+                summary.append("\n\nOptiFine should not be launched through Swing/Cacio here. DroidBridge tries its Forge/OptiFine installer agents first; reinstall components if forge_installer.jar or OptiFineRenamer.jar are missing.");
             }
         } else if (lowerName.contains("fabric-installer") && argumentsText.trim().startsWith("--installClient")) {
             summary.append("\n\nFabric installer does not use --installClient here. Use this syntax instead:\nclient -dir \"")
@@ -7159,7 +7190,7 @@ public final class LauncherSettingsActivity extends ControllerNavigationActivity
                 command.add("-Duser.home=" + resolveJarExecutionUserHome(workingDirectory).getAbsolutePath());
                 command.add("-Duser.dir=" + workingDirectory.getAbsolutePath());
 
-                boolean optiFineAgentMode = addZalithStyleLoaderVmArguments(command, displayName);
+                boolean optiFineAgentMode = addLoaderInstallerVmArguments(command, displayName);
 
                 command.add("-jar");
                 command.add(copiedJar.getAbsolutePath());
@@ -8109,7 +8140,7 @@ public final class LauncherSettingsActivity extends ControllerNavigationActivity
                 || lowerName.contains("bta");
     }
 
-    private boolean hasZalithStyleOptiFineAgents() {
+    private boolean hasOptiFineInstallerAgents() {
         try {
             LibPath.refresh();
             return LibPath.FORGE_INSTALLER != null && LibPath.FORGE_INSTALLER.isFile()
@@ -8119,20 +8150,19 @@ public final class LauncherSettingsActivity extends ControllerNavigationActivity
         }
     }
 
-    private boolean addZalithStyleLoaderVmArguments(
+    private boolean addLoaderInstallerVmArguments(
             @NonNull ArrayList<String> command,
             @NonNull String displayName
     ) {
         String lower = displayName.toLowerCase(Locale.US);
-        if (!isOptiFineInstallerName(lower) || !hasZalithStyleOptiFineAgents()) {
+        if (!isOptiFineInstallerName(lower) || !hasOptiFineInstallerAgents()) {
             return false;
         }
 
         /*
-         * the prior implementation's InstallArgsUtils does not launch OptiFine as a normal Swing
-         * installer. It injects forge_installer.jar with OFNPS and
+         * OptiFine is not launched as a normal Swing installer. DroidBridge injects forge_installer.jar with OFNPS and
          * OptiFineRenamer.jar with the target profile name, then launches the
-         * OptiFine jar. Reuse that launcher-side strategy here and keep Cacio
+         * OptiFine jar, keeping Cacio
          * out of this ProcessBuilder path completely.
          */
         String customName = buildOptiFineProfileName(displayName);
@@ -8354,7 +8384,7 @@ public final class LauncherSettingsActivity extends ControllerNavigationActivity
             boolean autoInstall
     ) {
         StringBuilder args = new StringBuilder();
-        if (autoInstall && hasZalithStyleOptiFineAgents()) {
+        if (autoInstall && hasOptiFineInstallerAgents()) {
             String customName = buildOptiFineProfileName(displayName);
             args.append("-javaagent:")
                     .append(quoteCommandPartForDisplay(LibPath.FORGE_INSTALLER.getAbsolutePath()))
@@ -9730,11 +9760,26 @@ public final class LauncherSettingsActivity extends ControllerNavigationActivity
                 LegalLinks.DROIDBRIDGE_TERMS_URL,
                 "DroidBridge Terms of Service link is not available yet."
         );
-        setupLegalLinkButton(
-                binding.buttonOpenDroidBridgeLicense,
-                LegalLinks.DROIDBRIDGE_LICENSING,
-                "DroidBridge Terms of Service link is not available yet."
-        );
+        binding.buttonOpenDroidBridgeLicense.setEnabled(true);
+        binding.buttonOpenDroidBridgeLicense.setOnClickListener(view -> showLicensingChoices());
+    }
+
+    /** DroidBridge's own license (website) and the open-source notices shipped in the app. */
+    private void showLicensingChoices() {
+        boolean websiteAvailable = !isNullOrBlank(LegalLinks.DROIDBRIDGE_LICENSING);
+        new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.button_open_droidbridge_license)
+                .setItems(new String[]{"DroidBridge license (website)", "Open-source licenses"}, (dialog, which) -> {
+                    if (which == 0) {
+                        if (!websiteAvailable || !LegalLinks.open(this, LegalLinks.DROIDBRIDGE_LICENSING)) {
+                            Toast.makeText(this, "The DroidBridge license page is not available yet.", Toast.LENGTH_LONG).show();
+                        }
+                    } else if (which == 1) {
+                        OpenSourceLicenses.show(this);
+                    }
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
     }
 
     private void setupLegalLinkButton(
@@ -11513,6 +11558,13 @@ public final class LauncherSettingsActivity extends ControllerNavigationActivity
             return;
         }
 
+        if (activeMicrosoft && account.isDemoAccount()) {
+            binding.textAccountStatus.setText("Signed in with a Microsoft account that doesn't own "
+                    + "Minecraft: Java Edition. It plays the Minecraft demo (5 in-game days, Java "
+                    + "engine only). Sign in with an account that owns the game for the full version.");
+            return;
+        }
+
         if (activeMicrosoft) {
             binding.textAccountStatus.setText(getString(R.string.status_signed_in, account.getBestDisplayName()));
             return;
@@ -11970,12 +12022,15 @@ public final class LauncherSettingsActivity extends ControllerNavigationActivity
 
     @Nullable
     private AccountStore.Account getMicrosoftSkinTargetAccount(@Nullable AccountStore.Account activeAccount) {
+        // A demo account has no Minecraft profile: no skin, cape or preview to show or change.
+        if (activeAccount != null && activeAccount.isDemoAccount()) return null;
         if (activeAccount != null && activeAccount.isMicrosoftAccount() && activeAccount.hasMinecraftSession()) {
             return activeAccount;
         }
         if (accountStore == null) return null;
         AccountStore.Account remembered = accountStore.loadLastMicrosoftAccount();
-        if (remembered != null && remembered.isMicrosoftAccount() && remembered.hasMinecraftSession()) {
+        if (remembered != null && remembered.isMicrosoftAccount() && remembered.hasMinecraftSession()
+                && !remembered.isDemoAccount()) {
             return remembered;
         }
         return null;

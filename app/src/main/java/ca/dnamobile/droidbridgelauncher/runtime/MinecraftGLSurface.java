@@ -1021,16 +1021,35 @@ public class MinecraftGLSurface extends FrameLayout implements GrabListener {
         }
         if (width <= 1 || height <= 1) return;
 
+        // SDL's cursor space is the game picture itself: the content rectangle Minecraft is
+        // shown in, not this whole view. With an experimental resolution (4:3, 1920x1080,
+        // custom) that rectangle is letterboxed inside the view, and some callers pass the
+        // view's full size. Publishing the full size made the launcher cursor and the touch
+        // cursor address the whole screen while SDL addressed the picture, so the game
+        // hovered a different slot than the one under the cursor (x * 0.75 at 4:3 on 16:9).
+        int left;
+        int top;
+        int visualWidth;
+        int visualHeight;
+        if (viewWidth > 1 && viewHeight > 1) {
+            left = Math.max(0, contentLeft);
+            top = Math.max(0, contentTop);
+            visualWidth = viewWidth;
+            visualHeight = viewHeight;
+        } else {
+            left = renderView != null ? Math.max(0, renderView.getLeft()) : 0;
+            top = renderView != null ? Math.max(0, renderView.getTop()) : 0;
+            visualWidth = width;
+            visualHeight = height;
+        }
         appliedSdlVisualQuarterTurn = 0;
-        appliedSdlVisualWidth = width;
-        appliedSdlVisualHeight = height;
-        int contentLeft = renderView != null ? Math.max(0, renderView.getLeft()) : 0;
-        int contentTop = renderView != null ? Math.max(0, renderView.getTop()) : 0;
+        appliedSdlVisualWidth = visualWidth;
+        appliedSdlVisualHeight = visualHeight;
         DroidBridgeSDL3Bootstrap.configureVisualLayout(
-                contentLeft,
-                contentTop,
-                Math.max(1, width),
-                Math.max(1, height),
+                left,
+                top,
+                Math.max(1, visualWidth),
+                Math.max(1, visualHeight),
                 Math.max(1, logicalWidth),
                 Math.max(1, logicalHeight)
         );
@@ -4930,6 +4949,16 @@ public class MinecraftGLSurface extends FrameLayout implements GrabListener {
         return super.dispatchKeyEvent(event);
     }
 
+    /**
+     * The Rust engine host: a physical keyboard key the engine's own input didn't take (it
+     * misread the keyboard as a controller, for example). Sent through CallbackBridge exactly
+     * as the Java engine sends one, with the same keyboard detection. False when it isn't a
+     * keyboard key.
+     */
+    public boolean sendHostPhysicalKeyboardEvent(@NonNull KeyEvent event) {
+        return handlePhysicalKeyboardEvent(event);
+    }
+
     private boolean handlePhysicalKeyboardEvent(@NonNull KeyEvent event) {
         if (!isPhysicalKeyboardEvent(event)) return false;
 
@@ -4939,10 +4968,12 @@ public class MinecraftGLSurface extends FrameLayout implements GrabListener {
         int glfwKey = androidKeyCodeToGlfw(event.getKeyCode());
         if (glfwKey < 0) return false;
 
-        // Movement keys only need the first down + final up. Ignoring repeat
-        // events avoids flooding the bridge and prevents InputDispatcher ANRs
-        // when Android generates key repeats while the JVM/render thread is busy.
-        if (action == KeyEvent.ACTION_DOWN && event.getRepeatCount() > 0) {
+        // A held key: Android repeats its down event. With "Repeat held keyboard keys" off,
+        // only the first down and the final up reach Minecraft (one press). On (the default),
+        // each repeat is sent as another press, as a PC keyboard's auto-repeat is: holding Q
+        // keeps dropping, holding Backspace keeps deleting.
+        if (action == KeyEvent.ACTION_DOWN && event.getRepeatCount() > 0
+                && !LauncherPreferences.isPhysicalKeyRepeatEnabled(getContext())) {
             return true;
         }
 

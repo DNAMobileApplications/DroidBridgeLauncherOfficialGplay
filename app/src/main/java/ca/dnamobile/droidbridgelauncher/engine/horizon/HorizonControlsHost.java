@@ -23,9 +23,12 @@ import android.view.Choreographer;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
+import android.view.PointerIcon;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Gravity;
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
@@ -75,9 +78,12 @@ import ca.dnamobile.droidbridgelauncher.game.FloatingGameSettingsOverlayControll
 import ca.dnamobile.droidbridgelauncher.input.GameCursorOverlay;
 import ca.dnamobile.droidbridgelauncher.input.GamepadMappingDialog;
 import ca.dnamobile.droidbridgelauncher.input.GamepadInputController;
+import ca.dnamobile.droidbridgelauncher.input.GamepadMappingStore;
+import ca.dnamobile.droidbridgelauncher.input.GyroInputController;
 import ca.dnamobile.droidbridgelauncher.runtime.DroidBridgeSdlFpsBridge;
 import ca.dnamobile.droidbridgelauncher.runtime.MinecraftGLSurface;
 import ca.dnamobile.droidbridgelauncher.settings.GameOverlayPreferences;
+import ca.dnamobile.droidbridgelauncher.settings.GameResolutionSettings;
 import ca.dnamobile.droidbridgelauncher.ui.LauncherDialogStyle;
 import dev.horizon.android.HorizonInput;
 
@@ -115,13 +121,52 @@ public final class HorizonControlsHost {
     @Nullable private GameCursorOverlay cursorOverlay;
     @Nullable private TouchControlsOverlay touchOverlay;
     @Nullable private GamepadInputController gamepad;
+    /** The gyroscope camera (Controls settings), as in the Java engine. */
+    @Nullable private GyroInputController gyro;
+    /** The hardware mouse DPI scale last given to the engine; checked a few times a second. */
+    private float engineMouseScale = Float.NaN;
+    /** The menu cursor sensitivity last given to the engine. */
+    private float engineMenuMouseScale = Float.NaN;
+    private long lastMouseScaleCheckUptimeMs;
     @Nullable private FloatingGameSettingsOverlayController floatingSettings;
     @Nullable private HorizonGameLogOverlayController gameLogOverlay;
+    /** Answers the recorder when "Hide touch controls in recordings" is on. */
+    @Nullable private HorizonRecordingFrames recordingFrames;
     private int imeViewportBottomInset;
     private final GameImeViewportController.ImeViewportTarget imeViewportTarget =
             this::setEngineImeViewportBottomInset;
     private boolean destroyed;
     private boolean lastGrabbed;
+    /** The engine's own window (NativeActivity): it holds focus, so pointer capture goes here. */
+    @Nullable private View engineDecor;
+    /** The floating cog: a physical mouse still clicks it as an Android button. */
+    @Nullable private View settingsButton;
+    private long lastPhysicalMouseUptimeMs;
+    /**
+     * The real mouse is what the player is using now. Touching the screen or using a controller
+     * turns it off (the engine stops capturing the mouse and DroidBridge's cursor follows the
+     * finger or the stick); moving the mouse again turns it back on. Before, once a mouse had been
+     * used the engine kept it captured for the rest of the game, so its menu cursor kept pulling
+     * DroidBridge's cursor back from a tap or the controller's cursor.
+     */
+    private boolean mouseActive;
+    /** The Android button state last sent for the physical mouse in Native Mouse menus. */
+    private int physicalMouseButtons;
+    private long lastCaptureRequestUptimeMs;
+    private boolean captureLogged;
+    /** This host asked Android for the capture (it then releases only its own). */
+    private boolean captureRequestedHere;
+    /** False once the engine says it can't move its menu cursor from captured motion. */
+    private boolean menuCaptureSupported = true;
+    /** The engine was told captured motion moves its menu cursor (Native Mouse in use). */
+    private boolean menuCaptureOn;
+    /** The grab state the capture was last updated for, to notice the game releasing it. */
+    private boolean captureGrabbed;
+    /** Android Virtual Mouse: the engine keeps menu clicks for this host (drainMenuMouseClicks). */
+    private boolean menuClicksToHost;
+    /** A left press the cog took, or the touch controls took; its moves and release go there too. */
+    private boolean cogMousePress;
+    private boolean controlMousePress;
     private int lastCursorShape = -1;
     private boolean driverProblemShown;
 
@@ -130,6 +175,9 @@ public final class HorizonControlsHost {
         public void doFrame(long frameTimeNanos) {
             if (destroyed) return;
             syncGrabStateFromEngine();
+            updateEngineMouseScale();
+            updateEngineMouseCapture();
+            drainMenuMouseClicks();
             // Dynamic mouse cursor: the cursor the game's widgets ask for (pointing hand over
             // buttons, not-allowed over disabled ones), the same SDL ids the Java engine's
             // SDL window reports, so GameCursorOverlay draws the player's chosen icons.
@@ -144,7 +192,7 @@ public final class HorizonControlsHost {
                     && HorizonInput.vulkanDriverState() == 2) {
                 driverProblemShown = true;
                 Toast.makeText(activity, vulkanDriverName
-                        + " did not load; Horizon is using the system Vulkan driver.",
+                        + " did not load; the Rust engine is using the system Vulkan driver.",
                         Toast.LENGTH_LONG).show();
             }
             Choreographer.getInstance().postFrameCallback(this);
@@ -160,10 +208,26 @@ public final class HorizonControlsHost {
         this.gameDirectory = gameDirectory;
         this.vulkanDriverName = vulkanDriverName;
         this.windowManager = activity.getWindowManager();
+        // The Java engine's experimental game resolution (4:3, 1920x1080, custom) letterboxes
+        // its own view; it doesn't apply to the Rust engine, which has its own Aspect ratio
+        // setting and maps the letterbox itself from full-window positions. DroidBridge's
+        // controls here address the whole window, so their touch cursor, menu cursor and
+        // hotbar must not use the Java profile's box: that put them out of step with the game.
+        GameResolutionSettings.setRuntimeProfileOverride(
+                new GameResolutionSettings.Profile(GameResolutionSettings.MODE_NATIVE, 0, 0));
+        // The same for the launcher's render scale slider: below 100% it shrank the controls'
+        // coordinate space, while the Native Mouse menu cursor is in window pixels, so the game
+        // hovered short of the drawn cursor (80% => 0.8x). The engine's own Client resolution
+        // setting scales the Rust engine.
+        GameResolutionSettings.setRuntimeRenderScaleOverride(100);
     }
 
     /** Adds the controls once the engine's window exists. Call from Activity.onCreate. */
     public void attach() {
+        if (recordingFrames == null) {
+            recordingFrames = new HorizonRecordingFrames(activity);
+            recordingFrames.register();
+        }
         View decor = activity.getWindow().getDecorView();
         decor.post(() -> attachWhenReady(decor, 0));
     }
@@ -230,6 +294,7 @@ public final class HorizonControlsHost {
                 Gravity.END | Gravity.BOTTOM);
         cogParams.setMargins(dp(16), dp(16), dp(16), dp(16));
         panel.addView(cog, cogParams);
+        settingsButton = cog;
         DroidBridgeSdlFpsBridge.setHostFpsSource(HorizonInput::fps);
         FloatingGameSettingsOverlayController floating =
                 new FloatingGameSettingsOverlayController(activity, cog);
@@ -249,14 +314,26 @@ public final class HorizonControlsHost {
                 PixelFormat.TRANSLUCENT);
         params.token = decor.getWindowToken();
         params.setTitle("DroidBridge controls");
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Always cover exactly the game's full screen. By default Android fits a window
+            // inside the visible system bars, and while this window holds focus for the
+            // keyboard the navigation bar becomes visible, so the controls shrank by its height
+            // under the game: every tap then landed that far (about one chat row) higher in
+            // Horizon than under the finger.
+            params.setFitInsetsTypes(0);
+            params.setFitInsetsSides(0);
+            params.layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             params.layoutInDisplayCutoutMode =
                     WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
         }
         windowManager.addView(panel, params);
+        keepSystemBarsHidden(panel);
 
         root = panel;
         panelParams = params;
+        engineDecor = decor;
         inputSurface = surface;
         cursorOverlay = cursor;
         touchOverlay = overlay;
@@ -275,7 +352,11 @@ public final class HorizonControlsHost {
                 () -> setPanelFocusable(true),
                 () -> setPanelFocusable(false));
 
+        HorizonInput.setKeyRepeat(LauncherPreferences.isPhysicalKeyRepeatEnabled(activity));
         gamepad = new GamepadInputController(panel);
+        GyroInputController gyroscope = new GyroInputController(activity);
+        gyro = gyroscope;
+        gyroscope.refreshFromPreferences();
         lastGrabbed = false;
         Choreographer.getInstance().postFrameCallback(grabPoll);
         Log.i(TAG, "DroidBridge controls attached over Horizon");
@@ -294,14 +375,385 @@ public final class HorizonControlsHost {
 
         @Override
         public boolean dispatchKeyEvent(KeyEvent event) {
-            if (HorizonControlsHost.this.handleKeyEvent(event)) return true;
+            if (HorizonControlsHost.this.handleControllerKeyEvent(event)) return true;
             return super.dispatchKeyEvent(event);
         }
 
         @Override
         public boolean dispatchGenericMotionEvent(MotionEvent event) {
             if (HorizonControlsHost.this.handleMotionEvent(event)) return true;
+            if (HorizonControlsHost.this.routePhysicalMouse(event, false)) return true;
             return super.dispatchGenericMotionEvent(event);
+        }
+
+        @Override
+        public boolean dispatchTouchEvent(MotionEvent event) {
+            if (HorizonControlsHost.this.routePhysicalMouse(event, true)) return true;
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN && isFingerTouch(event)) {
+                switchAwayFromMouse("touch");
+            }
+            return super.dispatchTouchEvent(event);
+        }
+
+        /**
+         * Native Mouse: the hide-Android-mouse-cursor setting over the whole controls window.
+         * Android Virtual Mouse keeps its existing cursor handling.
+         */
+        @Override
+        public PointerIcon onResolvePointerIcon(MotionEvent event, int pointerIndex) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N
+                    && isPhysicalMouseEvent(event)
+                    && nativeMouseMode()
+                    && LauncherPreferences.isHideAndroidPhysicalMouseCursor(getContext())) {
+                return PointerIcon.getSystemIcon(getContext(), PointerIcon.TYPE_NULL);
+            }
+            return super.onResolvePointerIcon(event, pointerIndex);
+        }
+    }
+
+    // --- Physical mouse ----------------------------------------------------------------------
+
+    /**
+     * A real mouse over this controls window, which happens only while the engine's window
+     * hasn't captured it yet (or the Android keyboard has the focus): once captured, its events
+     * go to the engine (updateEngineMouseCapture). Android Virtual Mouse then keeps DroidBridge's
+     * existing handling, touch buttons included, so nothing here takes its events.
+     *
+     * With Native Mouse the touch controls lie over DroidBridge's game view in this window, and
+     * that view moves its cursor in menus only with Android pointer capture, which this
+     * never-focused window can't get: the game's cursor stayed put while Android's own pointer
+     * moved. So in menus the mouse's real position, buttons and wheel go to the game here, and
+     * in gameplay the engine's own window captures the mouse (updateEngineMouseCapture). The
+     * cog stays an ordinary button for the mouse.
+     */
+    private boolean routePhysicalMouse(@NonNull MotionEvent event, boolean touchStream) {
+        if (destroyed || !isPhysicalMouseEvent(event)) return false;
+        // A real mouse is in use (either mode): from now on the engine's window captures it.
+        lastPhysicalMouseUptimeMs = SystemClock.uptimeMillis();
+        mouseActive = true;
+        if (!nativeMouseMode()) {
+            // Android Virtual Mouse before the capture takes hold (or while the Android keyboard
+            // has the focus): DroidBridge's existing handling, touch buttons included.
+            syncGrabStateFromEngine();
+            updateEngineMouseCapture();
+            return false;
+        }
+        View cog = settingsButton;
+        if (cog != null && cog.getVisibility() == View.VISIBLE && isOver(cog, event)) return false;
+        syncGrabStateFromEngine();
+        updateEngineMouseCapture();
+        if (!lastGrabbed) return sendNativeMenuMouse(event);
+        physicalMouseButtons = 0;
+        // Gameplay before Android has granted the capture: DroidBridge's game view turns the
+        // camera from the pointer's movement meanwhile.
+        MinecraftGLSurface surface = inputSurface;
+        if (surface == null) return touchStream;
+        boolean handled = touchStream
+                ? surface.dispatchTouchEvent(event)
+                : surface.dispatchGenericMotionEvent(event);
+        return handled || touchStream;
+    }
+
+    private boolean nativeMouseMode() {
+        return !LauncherPreferences.isAndroidVirtualPhysicalMouse(activity);
+    }
+
+    /**
+     * Native Mouse in a menu: the pointer's position in this window is the game's cursor
+     * position (CallbackBridge's coordinates are this window's pixels), so DroidBridge's cursor
+     * and the game's both follow the real mouse exactly.
+     */
+    private boolean sendNativeMenuMouse(@NonNull MotionEvent event) {
+        int action = event.getActionMasked();
+        if (action == MotionEvent.ACTION_SCROLL) {
+            float vertical = event.getAxisValue(MotionEvent.AXIS_VSCROLL);
+            float horizontal = event.getAxisValue(MotionEvent.AXIS_HSCROLL);
+            if (vertical != 0f || horizontal != 0f) CallbackBridge.sendScroll(horizontal, vertical);
+            return true;
+        }
+        if (action != MotionEvent.ACTION_HOVER_EXIT && action != MotionEvent.ACTION_CANCEL) {
+            CallbackBridge.sendHardwareCursorPos(event.getX(), event.getY());
+        }
+        // A mouse's touch-stream UP ends a primary click; some devices still report the
+        // button in that event's state, so it is cleared there.
+        int buttons = event.getButtonState();
+        if (action == MotionEvent.ACTION_UP) buttons &= ~MotionEvent.BUTTON_PRIMARY;
+        if (action == MotionEvent.ACTION_CANCEL) buttons = 0;
+        sendMouseButtons(buttons);
+        return true;
+    }
+
+    /** Presses and releases for the buttons whose state changed (GLFW 0 left, 1 right, ...). */
+    private void sendMouseButtons(int buttons) {
+        int[][] map = {
+                {MotionEvent.BUTTON_PRIMARY, 0},
+                {MotionEvent.BUTTON_SECONDARY, 1},
+                {MotionEvent.BUTTON_TERTIARY, 2},
+                {MotionEvent.BUTTON_BACK, 3},
+                {MotionEvent.BUTTON_FORWARD, 4},
+        };
+        for (int[] entry : map) {
+            boolean was = (physicalMouseButtons & entry[0]) != 0;
+            boolean now = (buttons & entry[0]) != 0;
+            if (was != now) CallbackBridge.sendMouseButton(entry[1], now);
+        }
+        physicalMouseButtons = buttons;
+    }
+
+    private static boolean isPhysicalMouseEvent(@NonNull MotionEvent event) {
+        int source = event.getSource();
+        boolean mouse = (source & InputDevice.SOURCE_MOUSE) == InputDevice.SOURCE_MOUSE
+                || (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                && (source & InputDevice.SOURCE_MOUSE_RELATIVE) == InputDevice.SOURCE_MOUSE_RELATIVE);
+        if (!mouse || event.getPointerCount() < 1) return false;
+        return event.getToolType(0) != MotionEvent.TOOL_TYPE_FINGER
+                && event.getToolType(0) != MotionEvent.TOOL_TYPE_STYLUS;
+    }
+
+    private static boolean isOver(@NonNull View view, @NonNull MotionEvent event) {
+        int[] at = new int[2];
+        view.getLocationInWindow(at);
+        float x = event.getX();
+        float y = event.getY();
+        return x >= at[0] && y >= at[1] && x < at[0] + view.getWidth() && y < at[1] + view.getHeight();
+    }
+
+    /**
+     * A real mouse, in either mode: Android captures it on the engine's own window (the
+     * focused one; this controls window never takes focus, so a capture asked for here would be
+     * refused), in gameplay and in menus. Captured, Android hides its pointer and keeps it away
+     * from the screen edges, which otherwise reveal the status and navigation bars; the mouse's
+     * motion and buttons go straight to the engine. In gameplay the motion turns the camera; in
+     * menus the engine moves its cursor with it (HorizonInput.setMenuMouseCapture), and
+     * DroidBridge's cursor follows the engine's (followEngineMenuCursor). Android Virtual Mouse
+     * also gets menu clicks first, for DroidBridge's own buttons (drainMenuMouseClicks), as in
+     * the Java engine. An engine built before that captures in gameplay only; its menus then use
+     * sendNativeMenuMouse (Native Mouse) or DroidBridge's game view (Virtual Mouse).
+     */
+    private void updateEngineMouseCapture() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || destroyed) return;
+        View decor = engineDecor;
+        if (decor == null) return;
+        // Only once a real mouse has been used in this game: some controllers' touchpads also
+        // report themselves as a mouse, and their players must keep the normal pointer.
+        boolean mouseInUse = mouseActive;
+        if (mouseInUse != menuCaptureOn && menuCaptureSupported) {
+            menuCaptureSupported = HorizonInput.setMenuMouseCapture(mouseInUse, -1f, -1f);
+            menuCaptureOn = mouseInUse && menuCaptureSupported;
+        }
+        // Android Virtual Mouse: menu clicks come here first, for DroidBridge's own buttons.
+        boolean clicksToHost = menuCaptureOn && !nativeMouseMode();
+        if (clicksToHost != menuClicksToHost) {
+            menuClicksToHost = HorizonInput.setMenuMouseClicksToHost(clicksToHost) && clicksToHost;
+            if (!menuClicksToHost) endVirtualMouseUiPress();
+        }
+        if (menuCaptureOn && captureGrabbed && !lastGrabbed) {
+            // The game released the pointer and put its cursor in the middle; so does the
+            // engine's menu cursor, and DroidBridge's follows.
+            FrameLayout panel = root;
+            if (panel != null) {
+                CallbackBridge.mouseX = panel.getWidth() / 2f;
+                CallbackBridge.mouseY = panel.getHeight() / 2f;
+            }
+        }
+        captureGrabbed = lastGrabbed;
+        if (lastGrabbed) endVirtualMouseUiPress();
+        boolean want = mouseInUse && (lastGrabbed || menuCaptureOn);
+        boolean has;
+        try {
+            has = decor.hasPointerCapture();
+        } catch (Throwable ignored) {
+            return;
+        }
+        if (has && !lastGrabbed && menuCaptureOn) followEngineMenuCursor();
+        if (want && !has) {
+            if (!decor.hasWindowFocus()) return;
+            long now = SystemClock.uptimeMillis();
+            if (now - lastCaptureRequestUptimeMs < 250L) return;
+            lastCaptureRequestUptimeMs = now;
+            if (!lastGrabbed && menuCaptureOn) {
+                // The engine's menu cursor starts where DroidBridge's cursor is now.
+                HorizonInput.setMenuMouseCapture(true,
+                        CallbackBridge.mouseX + controlsToEngineX(),
+                        CallbackBridge.mouseY + controlsToEngineY());
+            }
+            try {
+                decor.requestPointerCapture();
+                captureRequestedHere = true;
+            } catch (Throwable throwable) {
+                Log.w(TAG, "Could not capture the mouse for the engine", throwable);
+            }
+            if (!captureLogged) {
+                captureLogged = true;
+                LauncherLogManager.append("DroidBridgePhysicalMouse: Rust engine capture requested ("
+                        + (lastGrabbed ? "gameplay" : "menu") + ")");
+            }
+        } else if (!want && captureRequestedHere) {
+            captureRequestedHere = false;
+            captureLogged = false;
+            if (!has) return;
+            try {
+                decor.releasePointerCapture();
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    /**
+     * The captured real mouse's two speeds (Controls settings): the hardware mouse DPI scale
+     * turns the camera in gameplay, the menu cursor sensitivity moves the cursor in menus (the
+     * crafting table, inventories). Read a few times a second, so the sliders apply live while
+     * the in-game dialog is open.
+     */
+    private void updateEngineMouseScale() {
+        long now = SystemClock.uptimeMillis();
+        if (now - lastMouseScaleCheckUptimeMs < 250L) return;
+        lastMouseScaleCheckUptimeMs = now;
+        float camera;
+        float menu;
+        try {
+            GamepadMappingStore store = GamepadMappingStore.get(activity);
+            camera = store.getHardwareMouseDpiScaleMultiplier();
+            menu = store.getMenuCursorSensitivityMultiplier();
+        } catch (Throwable ignored) {
+            return;
+        }
+        camera = validScale(camera);
+        menu = validScale(menu);
+        if (camera != engineMouseScale) {
+            engineMouseScale = camera;
+            HorizonInput.setMouseScale(camera);
+        }
+        if (menu != engineMenuMouseScale) {
+            engineMenuMouseScale = menu;
+            HorizonInput.setMenuMouseScale(menu);
+        }
+    }
+
+    private static float validScale(float scale) {
+        return Float.isNaN(scale) || Float.isInfinite(scale) || scale <= 0f ? 1f : scale;
+    }
+
+    /** DroidBridge's cursor (CallbackBridge, this window's pixels) at the engine's menu cursor. */
+    private void followEngineMenuCursor() {
+        long packed = HorizonInput.menuCursor();
+        if (packed < 0L) return;
+        float x = (float) (int) (packed >>> 32) - controlsToEngineX();
+        float y = (float) (int) (packed & 0xFFFFFFFFL) - controlsToEngineY();
+        if (x == CallbackBridge.mouseX && y == CallbackBridge.mouseY) return;
+        CallbackBridge.mouseX = x;
+        CallbackBridge.mouseY = y;
+        GameCursorOverlay cursor = cursorOverlay;
+        if (cursor != null) cursor.invalidate();
+        // A held press on DroidBridge's own button follows the cursor (dragging off cancels it).
+        if (cogMousePress || controlMousePress) dispatchVirtualMouseUi(MotionEvent.ACTION_MOVE);
+    }
+
+    /**
+     * Android Virtual Mouse in menus, as in the Java engine: a left click first goes to
+     * DroidBridge's own on-screen buttons under the cursor (the cog, then the touch controls). If
+     * one takes it, the game doesn't get it; every other click goes on to the game.
+     */
+    private void drainMenuMouseClicks() {
+        if (!menuClicksToHost) return;
+        int packed;
+        int guard = 0;
+        while (guard++ < 64 && (packed = HorizonInput.takeMenuMouseButton()) >= 0) {
+            int button = packed >> 1;
+            boolean pressed = (packed & 1) != 0;
+            if (button == 0 && routeVirtualMouseClick(pressed)) continue;
+            HorizonInput.mouseButton(button, pressed);
+        }
+    }
+
+    /** A left press or release to DroidBridge's own buttons; true when one of them took it. */
+    private boolean routeVirtualMouseClick(boolean pressed) {
+        if (pressed) {
+            endVirtualMouseUiPress();
+            FloatingGameSettingsOverlayController floating = floatingSettings;
+            float[] at = cursorOnScreen();
+            if (floating != null
+                    && floating.dispatchCapturedPhysicalMouseGesture(MotionEvent.ACTION_DOWN, at[0], at[1])) {
+                cogMousePress = true;
+                return true;
+            }
+            TouchControlsOverlay overlay = touchOverlay;
+            if (overlay != null && overlay.dispatchCapturedPhysicalMouseToControl(
+                    MotionEvent.ACTION_DOWN, at[0], at[1], SystemClock.uptimeMillis())) {
+                controlMousePress = true;
+                return true;
+            }
+            return false;
+        }
+        if (!cogMousePress && !controlMousePress) return false;
+        dispatchVirtualMouseUi(MotionEvent.ACTION_UP);
+        cogMousePress = false;
+        controlMousePress = false;
+        return true;
+    }
+
+    private void dispatchVirtualMouseUi(int action) {
+        float[] at = cursorOnScreen();
+        try {
+            FloatingGameSettingsOverlayController floating = floatingSettings;
+            if (cogMousePress && floating != null) {
+                floating.dispatchCapturedPhysicalMouseGesture(action, at[0], at[1]);
+            }
+            TouchControlsOverlay overlay = touchOverlay;
+            if (controlMousePress && overlay != null) {
+                overlay.dispatchCapturedPhysicalMouseToControl(action, at[0], at[1],
+                        SystemClock.uptimeMillis());
+            }
+        } catch (Throwable throwable) {
+            Log.w(TAG, "Android Virtual Mouse button press failed", throwable);
+        }
+    }
+
+    /** Cancels a held press on DroidBridge's own button (the game grabbed, or the mode changed). */
+    private void endVirtualMouseUiPress() {
+        if (!cogMousePress && !controlMousePress) return;
+        dispatchVirtualMouseUi(MotionEvent.ACTION_CANCEL);
+        cogMousePress = false;
+        controlMousePress = false;
+    }
+
+    /** DroidBridge's cursor (CallbackBridge, this window's pixels) in screen pixels. */
+    @NonNull
+    private float[] cursorOnScreen() {
+        float[] at = {CallbackBridge.mouseX, CallbackBridge.mouseY};
+        FrameLayout panel = root;
+        if (panel == null) return at;
+        try {
+            int[] origin = new int[2];
+            panel.getLocationOnScreen(origin);
+            at[0] += origin[0];
+            at[1] += origin[1];
+        } catch (Throwable ignored) {
+        }
+        return at;
+    }
+
+    /** This window's origin in the engine window's pixels (both normally cover the screen). */
+    private float controlsToEngineX() {
+        return originOffset(0);
+    }
+
+    private float controlsToEngineY() {
+        return originOffset(1);
+    }
+
+    private float originOffset(int axis) {
+        FrameLayout panel = root;
+        View decor = engineDecor;
+        if (panel == null || decor == null) return 0f;
+        try {
+            int[] panelAt = new int[2];
+            int[] decorAt = new int[2];
+            panel.getLocationOnScreen(panelAt);
+            decor.getLocationOnScreen(decorAt);
+            return panelAt[axis] - decorAt[axis];
+        } catch (Throwable ignored) {
+            return 0f;
         }
     }
 
@@ -418,6 +870,11 @@ public final class HorizonControlsHost {
             }
         }
 
+        // While this window owns focus it also decides the system bars; keep them hidden like
+        // the game so the navigation bar never appears over (and resizes) the game.
+        keepSystemBarsHidden(panel);
+        panel.post(() -> keepSystemBarsHidden(panel));
+
         if (!focusable) {
             // Rust may re-grab the pointer while Android is still finishing the IME hide
             // animation. Refresh across that boundary. Keep the software cursor suppressed
@@ -431,6 +888,30 @@ public final class HorizonControlsHost {
                 GameCursorOverlay currentCursor = cursorOverlay;
                 if (currentCursor != null) currentCursor.setTemporarilySuppressed(false);
             }, 120L);
+        }
+    }
+
+    /** Immersive mode for the controls window, matching the game's own window. */
+    @SuppressWarnings("deprecation")
+    private static void keepSystemBarsHidden(@NonNull View panel) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                WindowInsetsController controller = panel.getWindowInsetsController();
+                if (controller != null) {
+                    controller.setSystemBarsBehavior(
+                            WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+                    controller.hide(WindowInsets.Type.systemBars());
+                }
+            } else {
+                panel.setSystemUiVisibility(View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                        | View.SYSTEM_UI_FLAG_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+            }
+        } catch (Throwable throwable) {
+            Log.w(TAG, "Could not hide system bars for the controls window", throwable);
         }
     }
 
@@ -984,7 +1465,7 @@ public final class HorizonControlsHost {
     private void showForceCloseGameDialog() {
         AlertDialog dialog = LauncherDialogStyle.builder(activity)
                 .setTitle("Force close game?")
-                .setMessage("This should only be used when Minecraft is frozen, crashed, or will not close normally. DroidBridge will preserve the latest log when log history is enabled, finalize any active recording, and close the Horizon game process.")
+                .setMessage("This should only be used when Minecraft is frozen, crashed, or will not close normally. DroidBridge will preserve the latest log when log history is enabled, finalize any active recording, and close the game.")
                 .setNegativeButton(android.R.string.cancel, null)
                 .setPositiveButton("Force close", null)
                 .create();
@@ -1067,18 +1548,147 @@ public final class HorizonControlsHost {
     }
 
     /** Controller buttons are owned exclusively by DroidBridge while host controls are active. */
+    /**
+     * HorizonActivity: a key the engine's own input left unhandled. Controller keys go to
+     * DroidBridge's mapper; a physical keyboard's keys go on to the engine the way the Java
+     * engine sends them. The engine only knows a keyboard by its Android source bits, and some
+     * keyboards report controller or d-pad bits on every key, so the engine passed them back
+     * here and the keyboard did nothing in game.
+     */
     public boolean handleKeyEvent(@NonNull KeyEvent event) {
         if (destroyed) return false;
         syncGrabStateFromEngine();
         GamepadInputController controller = gamepad;
-        if (controller != null && controller.handleKeyEvent(event)) return true;
-        return isControllerSource(event.getSource());
+        if (controller != null && controller.handleKeyEvent(event)) {
+            noteControllerKey(event);
+            return true;
+        }
+        if (forwardPhysicalKeyboardKey(event)) return true;
+        if (isControllerKey(event)) {
+            noteControllerKey(event);
+            return true;
+        }
+        return false;
+    }
+
+    /** The controls window's own key path (it holds focus only while Android's IME is up). */
+    private boolean handleControllerKeyEvent(@NonNull KeyEvent event) {
+        if (destroyed) return false;
+        syncGrabStateFromEngine();
+        GamepadInputController controller = gamepad;
+        if (controller != null && controller.handleKeyEvent(event)) {
+            noteControllerKey(event);
+            return true;
+        }
+        if (isControllerKey(event)) {
+            noteControllerKey(event);
+            return true;
+        }
+        return false;
+    }
+
+    private void noteControllerKey(@NonNull KeyEvent event) {
+        if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0
+                && isControllerKey(event)) {
+            switchAwayFromMouse("controller");
+        }
+    }
+
+    /** A real move of a controller's stick, trigger or D-pad hat (not resting noise). */
+    private static boolean isControllerMovement(@NonNull MotionEvent event) {
+        if (!isControllerSource(event.getSource())) return false;
+        if (event.getActionMasked() != MotionEvent.ACTION_MOVE) return false;
+        int[] sticks = {MotionEvent.AXIS_X, MotionEvent.AXIS_Y, MotionEvent.AXIS_Z,
+                MotionEvent.AXIS_RZ, MotionEvent.AXIS_HAT_X, MotionEvent.AXIS_HAT_Y};
+        for (int axis : sticks) {
+            if (Math.abs(event.getAxisValue(axis)) > 0.45f) return true;
+        }
+        return event.getAxisValue(MotionEvent.AXIS_LTRIGGER) > 0.6f
+                || event.getAxisValue(MotionEvent.AXIS_RTRIGGER) > 0.6f
+                || event.getAxisValue(MotionEvent.AXIS_BRAKE) > 0.6f
+                || event.getAxisValue(MotionEvent.AXIS_GAS) > 0.6f;
+    }
+
+    private static boolean isFingerTouch(@NonNull MotionEvent event) {
+        if ((event.getSource() & InputDevice.SOURCE_TOUCHSCREEN) != InputDevice.SOURCE_TOUCHSCREEN) {
+            return false;
+        }
+        int tool = event.getToolType(event.getActionIndex());
+        return tool == MotionEvent.TOOL_TYPE_FINGER || tool == MotionEvent.TOOL_TYPE_UNKNOWN;
+    }
+
+    /**
+     * The player touched the screen or used a controller while the real mouse was active: hand
+     * the cursor back to DroidBridge (the engine stops capturing the mouse and stops moving its
+     * own menu cursor). Moving the mouse again takes it back, from where the cursor is then.
+     */
+    private void switchAwayFromMouse(@NonNull String why) {
+        if (!mouseActive || destroyed) return;
+        mouseActive = false;
+        LauncherLogManager.append("DroidBridgePhysicalMouse: " + why
+                + " used; the Rust engine stops capturing the mouse until it moves again");
+        updateEngineMouseCapture();
+    }
+
+    private boolean keyboardForwardLogged;
+
+    private boolean forwardPhysicalKeyboardKey(@NonNull KeyEvent event) {
+        switch (event.getKeyCode()) {
+            case KeyEvent.KEYCODE_BACK:
+            case KeyEvent.KEYCODE_VOLUME_UP:
+            case KeyEvent.KEYCODE_VOLUME_DOWN:
+            case KeyEvent.KEYCODE_VOLUME_MUTE:
+                return false;
+            default:
+                break;
+        }
+        MinecraftGLSurface surface = inputSurface;
+        if (surface == null || !surface.sendHostPhysicalKeyboardEvent(event)) return false;
+        if (!keyboardForwardLogged) {
+            keyboardForwardLogged = true;
+            InputDevice device = event.getDevice();
+            LauncherLogManager.append("DroidBridgeKeyboard: sending physical keys to the Rust engine"
+                    + " through DroidBridge (source=0x" + Integer.toHexString(event.getSource())
+                    + " device=" + (device == null ? "?" : device.getName())
+                    + " keyboardType=" + (device == null ? -1 : device.getKeyboardType()) + ")");
+        }
+        return true;
+    }
+
+    /**
+     * A key only a controller sends. A physical keyboard with arrow keys reports
+     * SOURCE_KEYBOARD | SOURCE_DPAD on every key, so the DPAD bit alone would swallow its
+     * letters: those are keyboard keys unless they are the arrow/centre keys.
+     */
+    private static boolean isControllerKey(@NonNull KeyEvent event) {
+        int source = event.getSource();
+        if (!isControllerSource(source)) return false;
+        if ((source & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD
+                || (source & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK) {
+            return true;
+        }
+        if ((source & InputDevice.SOURCE_KEYBOARD) != InputDevice.SOURCE_KEYBOARD) return true;
+        InputDevice device = event.getDevice();
+        boolean fullKeyboard = device == null
+                || device.getKeyboardType() == InputDevice.KEYBOARD_TYPE_ALPHABETIC;
+        if (!fullKeyboard) return true;
+        switch (event.getKeyCode()) {
+            case KeyEvent.KEYCODE_DPAD_UP:
+            case KeyEvent.KEYCODE_DPAD_DOWN:
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+            case KeyEvent.KEYCODE_DPAD_CENTER:
+                return true;
+            default:
+                return false;
+        }
     }
 
     /** Controller sticks/triggers are also owned exclusively by DroidBridge. */
     public boolean handleMotionEvent(@NonNull MotionEvent event) {
         if (destroyed) return false;
         syncGrabStateFromEngine();
+        if (isControllerMovement(event)) switchAwayFromMouse("controller");
         GamepadInputController controller = gamepad;
         if (controller != null && controller.handleMotionEvent(event)) return true;
         return isControllerSource(event.getSource());
@@ -1104,6 +1714,10 @@ public final class HorizonControlsHost {
         if (log != null) log.configure();
         GamepadInputController controller = gamepad;
         if (controller != null) controller.onMappingsChanged();
+        GyroInputController gyroscope = gyro;
+        if (gyroscope != null) gyroscope.refreshFromPreferences();
+        lastMouseScaleCheckUptimeMs = 0L;
+        HorizonInput.setKeyRepeat(LauncherPreferences.isPhysicalKeyRepeatEnabled(activity));
         FloatingGameSettingsOverlayController floating = floatingSettings;
         if (floating != null) {
             // Picks up cog/FPS settings changed in the launcher, and restarts the FPS poll.
@@ -1114,6 +1728,8 @@ public final class HorizonControlsHost {
 
     /** Stops the FPS poll while the game is in the background. */
     public void onPause() {
+        GyroInputController gyroscope = gyro;
+        if (gyroscope != null) gyroscope.stop();
         FloatingGameSettingsOverlayController floating = floatingSettings;
         if (floating != null) floating.pause();
     }
@@ -1126,6 +1742,11 @@ public final class HorizonControlsHost {
         if (destroyed) return;
         destroyed = true;
         Choreographer.getInstance().removeFrameCallback(grabPoll);
+        HorizonRecordingFrames frames = recordingFrames;
+        recordingFrames = null;
+        if (frames != null) {
+            try { frames.unregister(); } catch (Throwable ignored) { }
+        }
         CallbackBridge.setHostInputSink(null);
         DroidBridgeSdlFpsBridge.setHostFpsSource(null);
         HorizonGameLogOverlayController log = gameLogOverlay;
@@ -1138,6 +1759,14 @@ public final class HorizonControlsHost {
         if (floating != null) {
             try {
                 floating.detach();
+            } catch (Throwable ignored) {
+            }
+        }
+        GyroInputController gyroscope = gyro;
+        gyro = null;
+        if (gyroscope != null) {
+            try {
+                gyroscope.stop();
             } catch (Throwable ignored) {
             }
         }
@@ -1166,6 +1795,15 @@ public final class HorizonControlsHost {
         if (panel != null) {
             try {
                 windowManager.removeViewImmediate(panel);
+            } catch (Throwable ignored) {
+            }
+        }
+        View decor = engineDecor;
+        engineDecor = null;
+        settingsButton = null;
+        if (decor != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                if (captureRequestedHere && decor.hasPointerCapture()) decor.releasePointerCapture();
             } catch (Throwable ignored) {
             }
         }

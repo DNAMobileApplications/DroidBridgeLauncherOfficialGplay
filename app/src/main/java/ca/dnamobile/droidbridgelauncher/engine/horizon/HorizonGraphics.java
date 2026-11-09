@@ -55,7 +55,7 @@ public final class HorizonGraphics {
         choices.add(new Choice(EnginePreferences.HORIZON_RENDERER_VULKAN, "Vulkan (recommended)"));
         choices.add(new Choice(EnginePreferences.HORIZON_RENDERER_VULKAN_BATCHING, "Vulkan with GPU batching"));
         choices.add(new Choice(EnginePreferences.HORIZON_RENDERER_OPENGL, "OpenGL ES (experimental)"));
-        choices.add(new Choice(EnginePreferences.HORIZON_RENDERER_ENGINE, "Horizon's own setting"));
+        choices.add(new Choice(EnginePreferences.HORIZON_RENDERER_ENGINE, "The engine's own setting"));
         return choices;
     }
 

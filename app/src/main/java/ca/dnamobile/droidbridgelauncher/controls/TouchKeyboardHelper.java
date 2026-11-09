@@ -544,14 +544,7 @@ public final class TouchKeyboardHelper {
     private static void guardMinecraftSurfaceFocus(@NonNull View source) {
         restoreMinecraftSurfaceFocus();
 
-        MinecraftGLSurface surface = findMinecraftSurface(source);
-        if (surface == null) {
-            Activity activity = findActivity(source.getContext());
-            if (activity != null && activity.getWindow() != null) {
-                View decor = activity.getWindow().getDecorView();
-                surface = findMinecraftSurface(decor);
-            }
-        }
+        MinecraftGLSurface surface = resolveMinecraftSurface(source);
         if (surface == null) return;
 
         guardedMinecraftSurfaceFocusable = surface.isFocusable();
@@ -580,6 +573,26 @@ public final class TouchKeyboardHelper {
             surface.setFocusableInTouchMode(guardedMinecraftSurfaceFocusableInTouchMode);
         } catch (Throwable ignored) {
         }
+    }
+
+    @Nullable
+    private static MinecraftGLSurface resolveMinecraftSurface(@Nullable View source) {
+        // 1. Inside the view that asked (a menu tap passes the surface itself).
+        MinecraftGLSurface surface = findMinecraftSurface(source);
+        // 2. Anywhere in the same window. The touch-controls keyboard button and the game
+        //    surface share one window; for an embedded engine (Horizon) that window is the
+        //    controls overlay, not the Activity, so step 4 alone never finds it there.
+        if (surface == null && source != null) surface = findMinecraftSurface(source.getRootView());
+        // 3. The single-screen host overlay (Horizon's controls panel).
+        if (surface == null) surface = findMinecraftSurface(getSingleScreenImeHost());
+        // 4. The Activity window (GameActivity, the Java engine).
+        if (surface == null && source != null) {
+            Activity activity = findActivity(source.getContext());
+            if (activity != null && activity.getWindow() != null) {
+                surface = findMinecraftSurface(activity.getWindow().getDecorView());
+            }
+        }
+        return surface;
     }
 
     @Nullable
@@ -690,13 +703,7 @@ public final class TouchKeyboardHelper {
     }
 
     private static void disableAndroidFocusHighlightOnMinecraftTarget(@Nullable View source) {
-        MinecraftGLSurface surface = findMinecraftSurface(source);
-        if (surface == null && source != null) {
-            Activity activity = findActivity(source.getContext());
-            if (activity != null && activity.getWindow() != null) {
-                surface = findMinecraftSurface(activity.getWindow().getDecorView());
-            }
-        }
+        MinecraftGLSurface surface = resolveMinecraftSurface(source);
         if (surface == null) return;
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -711,15 +718,7 @@ public final class TouchKeyboardHelper {
             @NonNull View returnFocusTarget,
             @NonNull String reason
     ) {
-        MinecraftGLSurface surface = findMinecraftSurface(returnFocusTarget);
-        if (surface == null) {
-            Activity activity = findActivity(returnFocusTarget.getContext());
-            if (activity != null && activity.getWindow() != null) {
-                surface = findMinecraftSurface(activity.getWindow().getDecorView());
-            }
-        }
-
-        final MinecraftGLSurface minecraftSurface = surface;
+        final MinecraftGLSurface minecraftSurface = resolveMinecraftSurface(returnFocusTarget);
         final Runnable restoreNativeFocus = () -> {
             // Do not let a delayed WindowInsets/focus callback auto-select the full-screen
             // Minecraft View after the IME has gone away.

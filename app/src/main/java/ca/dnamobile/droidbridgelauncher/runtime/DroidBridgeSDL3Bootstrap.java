@@ -1199,6 +1199,12 @@ public final class DroidBridgeSDL3Bootstrap {
                 && !ControlifySDL.isActive()))) {
             return false;
         }
+        // "Repeat held keyboard keys" off: a held key is one press (SDL would repeat it).
+        if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() > 0
+                && !ca.dnamobile.droidbridgelauncher.settings.LauncherPreferences
+                .isPhysicalKeyRepeatEnabledCached()) {
+            return true;
+        }
         try {
             if (MinecraftGLSurface.sdlEnabled) {
                 SDLControllerManager.initialize();

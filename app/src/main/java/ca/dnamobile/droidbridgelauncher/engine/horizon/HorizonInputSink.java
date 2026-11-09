@@ -51,10 +51,12 @@ final class HorizonInputSink implements CallbackBridge.HostInputSink {
 
     private float toWindowY(float y) {
         float scale = Math.max(1, controlsRoot.getHeight()) / (float) Math.max(1, CallbackBridge.windowHeight);
-        // GameImeViewportController visually translates Horizon upward while the IME is
-        // open. Map touches back into the engine's original, unshifted window coordinates
-        // exactly as MinecraftGLSurface does for the Java engine.
-        return y * scale + originDeltaY() + Math.max(0, imeViewportInset.getAsInt());
+        // No IME offset here. CallbackBridge positions are already game coordinates:
+        // MinecraftGLSurface adds its own IME inset when it turns a tap into a cursor position
+        // (mapViewYToCursorY), and the virtual mouse/controller cursor moves in game space.
+        // Adding the inset again put every tap one keyboard-height too low while the keyboard
+        // was up, so chat/command suggestions were missed.
+        return y * scale + originDeltaY();
     }
 
     private float originDeltaX() {

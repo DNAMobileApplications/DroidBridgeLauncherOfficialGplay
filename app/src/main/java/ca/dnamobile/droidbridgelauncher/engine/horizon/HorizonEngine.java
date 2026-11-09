@@ -66,10 +66,10 @@ public final class HorizonEngine {
     @Nullable
     public static String deviceProblem(@NonNull Context context) {
         if (!isBundled()) {
-            return "This build of DroidBridge does not include the Horizon engine.";
+            return "This build of DroidBridge does not include the Rust engine.";
         }
         if (Build.VERSION.SDK_INT < MIN_SDK) {
-            return "Horizon needs Android 9 or newer.";
+            return "The Rust engine needs Android 9 or newer.";
         }
         boolean arm64 = false;
         for (String abi : Build.SUPPORTED_ABIS) {
@@ -79,13 +79,13 @@ public final class HorizonEngine {
             }
         }
         if (!arm64) {
-            return "Horizon needs a 64-bit ARM (arm64-v8a) device.";
+            return "The Rust engine needs a 64-bit ARM (arm64-v8a) device.";
         }
         PackageManager packageManager = context.getPackageManager();
         boolean vulkan = packageManager.hasSystemFeature(PackageManager.FEATURE_VULKAN_HARDWARE_LEVEL, 0)
                 || packageManager.hasSystemFeature(PackageManager.FEATURE_VULKAN_HARDWARE_VERSION);
         if (!vulkan && glesVersion(context) < GLES_3_0) {
-            return "Horizon needs a GPU with Vulkan or OpenGL ES 3.";
+            return "The Rust engine needs a GPU with Vulkan or OpenGL ES 3.";
         }
         return null;
     }

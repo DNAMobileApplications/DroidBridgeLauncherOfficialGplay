@@ -60,10 +60,10 @@ public final class HorizonSettingsDialog {
         content.setPadding(pad, pad / 2, pad, pad / 2);
 
         TextView note = new TextView(activity);
-        note.setText("These are Horizon's engine-side Android settings. DroidBridge stays the launcher; "
-                + "changes apply to the next Horizon launch. Renderer/driver choices in DroidBridge's "
-                + "Horizon Advanced Settings can override Horizon's own rendering setting. Input is always "
-                + "owned by DroidBridge while Horizon is embedded.");
+        note.setText("These are the Rust engine's own Android settings. Changes apply the next time the "
+                + "Rust engine starts. The renderer and driver choices in Rust Engine Advanced Settings can "
+                + "override the engine's own rendering setting. Touch, mouse and controller input always "
+                + "comes from DroidBridge.");
         note.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         note.setPadding(0, 0, 0, pad / 2);
         content.addView(note, matchWrap());
@@ -89,7 +89,7 @@ public final class HorizonSettingsDialog {
             refresh.setText("Display refresh rate: " + (hz == 0 ? "System default" : hz + " Hz"));
         };
 
-        renderer.setOnClickListener(v -> choose(activity, "Horizon rendering", new String[]{
+        renderer.setOnClickListener(v -> choose(activity, "Engine rendering", new String[]{
                         "Vulkan / compatibility", "Vulkan / GPU batching", "OpenGL ES / experimental"
                 }, new String[]{"vulkan-compatibility", "vulkan", "open-gl"},
                 store.text("renderer", defaultRenderer()), value -> {
@@ -121,7 +121,7 @@ public final class HorizonSettingsDialog {
         });
 
         workers.setOnClickListener(v -> numberEntry(activity, "Chunk worker limit",
-                "0 means no additional limit. Horizon accepts 0 to 64 workers.",
+                "0 means no additional limit. The engine accepts 0 to 64 workers.",
                 clamp(store.integer("worker_limit", 0), 0, 64), 0, 64, value -> {
                     store.put("worker_limit", value);
                     refreshRows.run();
@@ -190,7 +190,7 @@ public final class HorizonSettingsDialog {
         scroll.addView(content);
 
         new MaterialAlertDialogBuilder(activity)
-                .setTitle("Horizon Settings")
+                .setTitle("Engine Settings")
                 .setView(scroll)
                 .setPositiveButton(android.R.string.ok, null)
                 .setNeutralButton("Reset", (dialog, which) -> confirmReset(activity))
@@ -199,17 +199,17 @@ public final class HorizonSettingsDialog {
 
     private static void confirmReset(@NonNull Activity activity) {
         new MaterialAlertDialogBuilder(activity)
-                .setTitle("Reset Horizon settings?")
-                .setMessage("This resets only the Horizon Android engine settings shown here. "
-                        + "DroidBridge's Horizon Advanced Settings for renderer, driver and controls are separate.")
+                .setTitle("Reset engine settings?")
+                .setMessage("This resets only the Rust engine settings shown here. "
+                        + "Rust Engine Advanced Settings for renderer, driver and controls are separate.")
                 .setPositiveButton("Reset", (dialog, which) -> {
                     try {
                         new Store(activity).resetManagedSettings();
                         LauncherLogManager.append("Horizon: reset Android engine settings from DroidBridge");
-                        Toast.makeText(activity, "Horizon settings reset.", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(activity, "Engine settings reset.", Toast.LENGTH_SHORT).show();
                     } catch (Throwable throwable) {
                         Log.e(TAG, "Could not reset Horizon settings", throwable);
-                        Toast.makeText(activity, "Could not reset Horizon settings.", Toast.LENGTH_LONG).show();
+                        Toast.makeText(activity, "Could not reset the engine settings.", Toast.LENGTH_LONG).show();
                     }
                 })
                 .setNegativeButton(android.R.string.cancel, null)

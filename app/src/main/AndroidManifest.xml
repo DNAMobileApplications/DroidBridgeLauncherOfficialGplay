@@ -314,6 +314,21 @@
                 <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
             </intent-filter>
         </provider>
+        <!-- Horizon Add-ons: an instance's Horizon mods, native-mod switches and shader packs.
+             The provider runs the game's own file checks in :horizon, so the engine library
+             never loads into the launcher. -->
+        <activity
+            android:name=".engine.horizon.HorizonAddonsActivity"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+            android:enabled="${horizonEngineEnabled}"
+            android:exported="false"
+            android:screenOrientation="fullSensor" />
+        <provider
+            android:name="dev.horizon.android.HorizonAddonsProvider"
+            android:authorities="${applicationId}.horizon.addons"
+            android:enabled="${horizonEngineEnabled}"
+            android:exported="false"
+            android:process=":horizon" />
 
         <!-- Controller editor screens. -->
         <activity

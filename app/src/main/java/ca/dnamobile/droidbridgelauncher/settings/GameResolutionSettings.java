@@ -57,6 +57,7 @@ public final class GameResolutionSettings {
 
     @Nullable
     private static volatile Profile runtimeProfileOverride;
+    @Nullable private static volatile Integer runtimeRenderScaleOverride;
 
     private GameResolutionSettings() {
     }
@@ -97,6 +98,16 @@ public final class GameResolutionSettings {
 
     public static void clearRuntimeProfileOverride() {
         runtimeProfileOverride = null;
+    }
+
+    /**
+     * Pins the render scale for this process, ignoring the launcher slider (null: no pin). The
+     * Rust engine host uses 100: the engine has its own Client resolution setting, and the
+     * slider must not shrink the coordinate space DroidBridge's controls use over it.
+     */
+    public static void setRuntimeRenderScaleOverride(@Nullable Integer percent) {
+        runtimeRenderScaleOverride = percent == null
+                ? null : Math.max(1, Math.min(100, percent));
     }
 
     @Nullable
@@ -207,6 +218,8 @@ public final class GameResolutionSettings {
             @NonNull Context context,
             int requestedPercent
     ) {
+        Integer pinned = runtimeRenderScaleOverride;
+        if (pinned != null) return pinned;
         int percent = Math.max(1, Math.min(100, requestedPercent));
 
         // LaunchGame exports this marker before the :game process starts. Prefer it

@@ -130,6 +130,7 @@ import ca.dnamobile.droidbridgelauncher.instance.LauncherInstanceManager;
 import ca.dnamobile.droidbridgelauncher.launcher.QuickPlayHelper;
 import ca.dnamobile.droidbridgelauncher.instance.LauncherInstanceDeleteManager;
 import ca.dnamobile.droidbridgelauncher.instance.InstanceVersionUpdater;
+import ca.dnamobile.droidbridgelauncher.instance.ResourcePackSelection;
 import ca.dnamobile.droidbridgelauncher.launcher.InstanceLaunchSettings;
 import ca.dnamobile.droidbridgelauncher.modmanager.DroidBridgeMetadataPaths;
 import ca.dnamobile.droidbridgelauncher.modmanager.ModManagerContentType;
@@ -4943,6 +4944,10 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
         if (currentlyEnabled == enabled) {
             return;
         }
+        if (isSelectableResourcePack(item.file)) {
+            setResourcePackActive(item, enabled);
+            return;
+        }
 
         File parent = item.file.getParentFile();
         if (parent == null) {
@@ -5283,11 +5288,17 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
                 getString(R.string.instance_content_selected_count, targets.size())
         );
 
+        String resourcePackVersion = getGameVersionIdForContent();
         contentOperationExecutor.execute(() -> {
             int changed = 0;
             Throwable error = null;
             for (InstanceContentItem item : targets) {
                 try {
+                    if (isSelectableResourcePack(item.file)) {
+                        applyResourcePackActive(item.file, enabled, resourcePackVersion);
+                        changed++;
+                        continue;
+                    }
                     File oldFile = item.file;
                     File parent = oldFile.getParentFile();
                     if (parent == null) throw new IOException("No parent folder for " + oldFile.getName());
@@ -7503,7 +7514,84 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
     }
 
     private boolean isContentItemEnabled(@NonNull File file) {
-        return !file.getName().toLowerCase(Locale.US).endsWith(".disabled");
+        if (file.getName().toLowerCase(Locale.US).endsWith(".disabled")) return false;
+        if (isSelectableResourcePack(file) && gameDirectory != null) {
+            // A resource pack is "on" when the game uses it (options.txt), not merely present.
+            return ResourcePackSelection.isSelected(gameDirectory, getGameVersionIdForContent(), file.getName());
+        }
+        return true;
+    }
+
+    /**
+     * A resource pack in this instance's resourcepacks folder, for a version that keeps its
+     * selection in options.txt (1.7+). Its switch turns it on and off in game
+     * (ResourcePackSelection), for the Java and Rust engines alike.
+     */
+    private boolean isSelectableResourcePack(@NonNull File file) {
+        if (gameDirectory == null || resourcepacksDirectory == null) return false;
+        File parent = file.getParentFile();
+        // Cheap name check first: this runs for every row, including thousands of mods.
+        if (parent == null || !parent.getName().equals(resourcepacksDirectory.getName())) return false;
+        if (usesLegacyTexturePacks() || !ResourcePackSelection.supports(getGameVersionIdForContent())) return false;
+        return safeCanonicalPath(parent).equals(safeCanonicalPath(resourcepacksDirectory));
+    }
+
+    /**
+     * Turns a resource pack on (a ".disabled" file gets its name back, then the game's list gets
+     * it on top) or off (out of the game's list; the file stays, available in game). Returns the
+     * pack's file afterwards. Worker thread.
+     */
+    @NonNull
+    private File applyResourcePackActive(@NonNull File file, boolean active, @Nullable String version) throws IOException {
+        File target = file;
+        if (active && file.getName().toLowerCase(Locale.US).endsWith(".disabled")) {
+            File parent = file.getParentFile();
+            if (parent == null) throw new IOException("No parent folder for " + file.getName());
+            target = new File(parent, removeDisabledSuffix(file.getName()));
+            if (target.exists()) throw new IOException("Target already exists: " + target.getName());
+            if (!file.renameTo(target)) throw new IOException("Unable to rename " + file.getName());
+            ModManagerContentType managerType = toModManagerContentType(ResourceCategory.RESOURCEPACKS);
+            if (gameDirectory != null && managerType != null) {
+                ModManagerManifest.updateEntryFileTarget(gameDirectory, managerType, file, target);
+            }
+        }
+        if (gameDirectory == null) throw new IOException("No game folder");
+        ResourcePackSelection.setSelected(this, gameDirectory, version, target.getName(), active);
+        return target;
+    }
+
+    private void setResourcePackActive(@NonNull InstanceContentItem item, boolean active) {
+        File oldFile = item.file;
+        String oldPath = safeCanonicalPath(oldFile);
+        String displayName = stripDisabledSuffix(oldFile.getName());
+        String version = getGameVersionIdForContent();
+        setContentOperationInProgress(true, active ? "Enabling content" : "Disabling content", displayName);
+        contentOperationExecutor.execute(() -> {
+            File result = null;
+            Throwable error = null;
+            try {
+                result = applyResourcePackActive(oldFile, active, version);
+            } catch (Throwable throwable) {
+                error = throwable;
+                Logging.e(TAG, "Unable to turn resource pack " + (active ? "on" : "off") + ": "
+                        + oldFile.getAbsolutePath(), throwable);
+            }
+            File finalResult = result;
+            Throwable finalError = error;
+            mainHandler.post(() -> {
+                if (binding == null || isFinishing() || isDestroyed()) return;
+                if (finalError == null && finalResult != null) {
+                    replaceContentItemAfterToggle(oldPath, finalResult, ResourceCategory.RESOURCEPACKS);
+                    Toast.makeText(this, getString(active ? R.string.instance_content_enabled_success
+                            : R.string.instance_content_disabled_success, displayName), Toast.LENGTH_SHORT).show();
+                } else {
+                    notifyContentItemChangedByPath(oldFile);
+                    Toast.makeText(this, getString(R.string.instance_content_toggle_failed, displayName) + ": "
+                            + (finalError == null ? "Unknown error" : readableError(finalError)), Toast.LENGTH_LONG).show();
+                }
+                setContentOperationInProgress(false, "", "");
+            });
+        });
     }
 
     @NonNull

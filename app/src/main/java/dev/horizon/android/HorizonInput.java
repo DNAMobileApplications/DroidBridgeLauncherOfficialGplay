@@ -63,6 +63,93 @@ public final class HorizonInput {
         }
     }
 
+    /**
+     * DroidBridge's Native Mouse: while the engine's window has the mouse captured, the mouse's
+     * motion moves the engine's menu cursor, so Android's pointer never reaches the screen edges
+     * (which reveal the status and navigation bars). {@code x}, {@code y}: where the cursor is
+     * now in the engine's window pixels, or negative to keep the engine's own. False: an engine
+     * built before this, which can't move its menu cursor that way.
+     */
+    public static boolean setMenuMouseCapture(boolean enabled, float x, float y) {
+        try {
+            nativeSetMenuMouseCapture(enabled, x, y);
+            return true;
+        } catch (UnsatisfiedLinkError error) {
+            return false;
+        }
+    }
+
+    /**
+     * DroidBridge's hardware mouse DPI scale (1.0 = 100%): the engine multiplies a captured real
+     * mouse's camera motion (gameplay) by it. Menus use setMenuMouseScale. Ignored by an engine
+     * built before this.
+     */
+    public static void setMouseScale(float scale) {
+        try {
+            nativeSetMouseScale(scale);
+        } catch (UnsatisfiedLinkError ignored) {
+        }
+    }
+
+    /**
+     * DroidBridge's "Repeat held keyboard keys": off, the engine drops Android's repeats of a held
+     * physical key, so it counts as one press. Ignored by an engine built before this.
+     */
+    public static void setKeyRepeat(boolean enabled) {
+        try {
+            nativeSetKeyRepeat(enabled);
+        } catch (UnsatisfiedLinkError ignored) {
+        }
+    }
+
+    /**
+     * DroidBridge's Android Virtual Mouse: with this on, the engine keeps a captured mouse's menu
+     * clicks for DroidBridge (takeMenuMouseButton), which presses its own on-screen buttons under
+     * the cursor and sends the other clicks back with mouseButton. False: an engine built
+     * before this.
+     */
+    public static boolean setMenuMouseClicksToHost(boolean enabled) {
+        try {
+            nativeSetMenuMouseClicksToHost(enabled);
+            return true;
+        } catch (UnsatisfiedLinkError error) {
+            return false;
+        }
+    }
+
+    /** The next menu click the engine kept: {@code (glfwButton << 1) | pressed}, or -1. */
+    public static int takeMenuMouseButton() {
+        try {
+            return nativeTakeMenuMouseButton();
+        } catch (UnsatisfiedLinkError error) {
+            return -1;
+        }
+    }
+
+    /**
+     * DroidBridge's menu cursor sensitivity (1.0 = 100%): how fast a captured real mouse moves the
+     * engine's menu cursor (crafting table, inventory, menus), separately from the camera's DPI
+     * scale. Ignored by an engine built before this.
+     */
+    public static void setMenuMouseScale(float scale) {
+        try {
+            nativeSetMenuMouseScale(scale);
+        } catch (UnsatisfiedLinkError ignored) {
+        }
+    }
+
+    /**
+     * Where captured motion has moved the engine's menu cursor, in its window pixels, packed as
+     * {@code (x << 32) | y}; -1 when there is none (not captured, gameplay, or an older engine).
+     */
+    public static long menuCursor() {
+        try {
+            return nativeMenuCursor();
+        } catch (UnsatisfiedLinkError error) {
+            return -1L;
+        }
+    }
+
     /** The game's frames per second over the last second; 0 when not known yet. */
     public static int fps() {
         try {
@@ -117,6 +204,13 @@ public final class HorizonInput {
     private static native void nativeMouseButton(int glfwButton, boolean pressed);
     private static native void nativeScroll(float x, float y);
     private static native boolean nativeIsGrabbed();
+    private static native void nativeSetMenuMouseCapture(boolean enabled, float x, float y);
+    private static native long nativeMenuCursor();
+    private static native void nativeSetMouseScale(float scale);
+    private static native void nativeSetMenuMouseScale(float scale);
+    private static native void nativeSetMenuMouseClicksToHost(boolean enabled);
+    private static native void nativeSetKeyRepeat(boolean enabled);
+    private static native int nativeTakeMenuMouseButton();
     private static native void nativeSetImeViewportBottomInset(int bottomInsetPx);
     private static native int nativeFps();
     private static native int nativeCursorShape();

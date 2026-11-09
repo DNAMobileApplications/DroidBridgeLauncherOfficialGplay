@@ -76,7 +76,15 @@ public final class LauncherSecurity {
         if (!sameUuid(account.minecraftUuid, savedAccount.minecraftUuid)) return false;
         if (!safeEquals(account.minecraftAccessToken, savedAccount.minecraftAccessToken)) return false;
         if (!BuildConfig.HARDENED_BUILD) return true;
+        // A demo account has no entitlement by design; its launches are always the demo
+        // (JavaLaunchBuilder adds --demo), and the Rust engine refuses it (isDemoAccount).
+        if (account.isDemoAccount() && savedAccount.isDemoAccount()) return true;
         return InstallEntitlementVault.hasValidEntitlementForAccount(context, account);
+    }
+
+    /** A demo account: Microsoft sign-in without Java Edition (plays Minecraft's demo only). */
+    public static boolean isDemoAccount(@Nullable AccountStore.Account account) {
+        return account != null && account.isMicrosoftAccount() && account.isDemoAccount();
     }
 
     public static void requireOfficialBuild(@NonNull Context context) {
@@ -119,7 +127,8 @@ public final class LauncherSecurity {
                     "A live Microsoft/Minecraft account is required to " + action + "."
             );
         }
-        if (BuildConfig.HARDENED_BUILD && !InstallEntitlementVault.hasValidEntitlementForAccount(context, account)) {
+        if (BuildConfig.HARDENED_BUILD && !account.isDemoAccount()
+                && !InstallEntitlementVault.hasValidEntitlementForAccount(context, account)) {
             throw new SecurityException(
                     "This install has not completed its verified Microsoft/Minecraft activation."
             );

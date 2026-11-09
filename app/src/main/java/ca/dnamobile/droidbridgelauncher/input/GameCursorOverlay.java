@@ -508,10 +508,26 @@ public final class GameCursorOverlay extends View {
              * the black bars even while Minecraft highlights an item in the center.
              * A normal fullscreen surface resolves to the same full-root bounds as before.
              */
-            boundsLeft = viewportBounds.left;
-            boundsTop = viewportBounds.top;
-            boundsWidth = viewportBounds.width();
-            boundsHeight = viewportBounds.height();
+            // SDL3's cursor space is the game picture itself (the live render view). With an
+            // experimental resolution (4:3, a render scale below 100%...) that picture is
+            // letterboxed inside the game view, so drawing across the whole view put this
+            // cursor further out than the slot the game highlighted.
+            if (overlayParent != null
+                    && DroidBridgeSDL3Bootstrap.resolveCursorOverlayBounds(overlayParent, sdlPictureBounds)
+                    && sdlPictureBounds.width() > 1f && sdlPictureBounds.height() > 1f) {
+                boundsLeft = sdlPictureBounds.left;
+                boundsTop = sdlPictureBounds.top;
+                boundsWidth = sdlPictureBounds.width();
+                boundsHeight = sdlPictureBounds.height();
+            } else {
+                GameResolutionSettings.DisplayBounds displayBounds =
+                        GameResolutionSettings.resolveDisplayBounds(
+                                getContext(), viewportWidth, viewportHeight);
+                boundsLeft = viewportBounds.left + displayBounds.left;
+                boundsTop = viewportBounds.top + displayBounds.top;
+                boundsWidth = displayBounds.width;
+                boundsHeight = displayBounds.height;
+            }
             bridgeWidth = Math.max(1f,
                     DroidBridgeSDL3Bootstrap.getSdlCursorCoordinateWidth());
             bridgeHeight = Math.max(1f,
@@ -571,6 +587,9 @@ public final class GameCursorOverlay extends View {
         cursorDrawable.setBounds(left, top, left + cursorWidth, top + cursorHeight);
         cursorDrawable.invalidateSelf();
     }
+
+    /** Reused for the SDL3 game picture's bounds (asked on every cursor update). */
+    private final RectF sdlPictureBounds = new RectF();
 
     @NonNull
     private RectF resolveViewportBounds(int rootWidth, int rootHeight) {

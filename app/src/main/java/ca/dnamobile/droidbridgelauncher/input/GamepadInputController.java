@@ -1282,7 +1282,11 @@ public final class GamepadInputController {
         }
 
         try {
-            int percent = LauncherPreferences.getGameResolutionScalePercent(context);
+            // The render scale actually in use, not the slider as such: the Rust engine pins
+            // it to 100% (its own Client resolution scales it, and DroidBridge's cursor there
+            // is in window pixels), so a 25% slider no longer slows its menu cursor to a third.
+            int percent = GameResolutionSettings.resolveEffectiveRenderScalePercent(
+                    context, LauncherPreferences.getGameResolutionScalePercent(context));
             if (percent > 0) return clamp(percent / 100f, 0.35f, 2.5f);
         } catch (Throwable ignored) {
         }

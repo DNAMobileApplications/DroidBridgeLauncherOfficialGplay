@@ -1987,6 +1987,12 @@ public final class LaunchGame {
         } catch (Throwable ignored) {
         }
 
+        boolean demo = false;
+        try {
+            demo = microsoft && account.isDemoAccount();
+        } catch (Throwable ignored) {
+        }
+        if (demo) return "Microsoft demo (" + name + ")";
         return microsoft ? "Microsoft (" + name + ")" : "Offline (" + name + ")";
     }
     @NonNull

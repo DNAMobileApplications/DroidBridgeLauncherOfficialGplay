@@ -79,6 +79,9 @@ public final class LauncherPreferences {
     private static final String KEY_PHYSICAL_MOUSE_MODE = "physical_mouse_mode";
     private static final String KEY_HIDE_ANDROID_PHYSICAL_MOUSE_CURSOR =
             "hide_android_physical_mouse_cursor";
+    private static final String KEY_PHYSICAL_KEY_REPEAT = "physical_keyboard_key_repeat";
+    /** The key repeat setting as last read or set in this process, for paths without a Context. */
+    private static volatile boolean physicalKeyRepeatCached = true;
     private static final String KEY_AXIOM_ANDROID_COMPATIBILITY =
             "axiom_android_compatibility";
     public static final String PHYSICAL_MOUSE_MODE_NATIVE = "native";
@@ -1150,6 +1153,27 @@ public final class LauncherPreferences {
         prefs(context).edit()
                 .putBoolean(KEY_HIDE_ANDROID_PHYSICAL_MOUSE_CURSOR, enabled)
                 .apply();
+    }
+
+    /**
+     * Repeat held keyboard keys: holding a physical keyboard key keeps sending it, as on a PC
+     * (hold Q to keep dropping items, hold Backspace to keep deleting). Off: a held key counts as
+     * one press. On by default. Applies to the Java and Rust engines.
+     */
+    public static boolean isPhysicalKeyRepeatEnabled(@NonNull Context context) {
+        boolean enabled = prefs(context).getBoolean(KEY_PHYSICAL_KEY_REPEAT, true);
+        physicalKeyRepeatCached = enabled;
+        return enabled;
+    }
+
+    public static void setPhysicalKeyRepeatEnabled(@NonNull Context context, boolean enabled) {
+        prefs(context).edit().putBoolean(KEY_PHYSICAL_KEY_REPEAT, enabled).apply();
+        physicalKeyRepeatCached = enabled;
+    }
+
+    /** The key repeat setting as last read or set in this process (refreshed on game resume). */
+    public static boolean isPhysicalKeyRepeatEnabledCached() {
+        return physicalKeyRepeatCached;
     }
 
     /**

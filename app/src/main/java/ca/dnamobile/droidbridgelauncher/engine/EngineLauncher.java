@@ -23,16 +23,14 @@ import androidx.annotation.Nullable;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import ca.dnamobile.droidbridgelauncher.engine.horizon.HorizonEngine;
 import ca.dnamobile.droidbridgelauncher.engine.horizon.HorizonGraphics;
 import ca.dnamobile.droidbridgelauncher.engine.horizon.HorizonLaunchActivity;
 import ca.dnamobile.droidbridgelauncher.engine.horizon.HorizonSettingsDialog;
+import ca.dnamobile.droidbridgelauncher.legal.OpenSourceLicenses;
 import ca.dnamobile.droidbridgelauncher.logs.LauncherLogManager;
 import ca.dnamobile.droidbridgelauncher.settings.LauncherPreferences;
 
@@ -44,7 +42,7 @@ import ca.dnamobile.droidbridgelauncher.settings.LauncherPreferences;
  * in that instance's Per Instance Settings. No launch-time engine chooser is shown.
  */
 public final class EngineLauncher {
-    private static final String HORIZON_LABEL = "Horizon (Rust)";
+    private static final String HORIZON_LABEL = "Rust (experimental)";
     private static final String JAVA_LABEL = "Java";
 
     private EngineLauncher() {
@@ -111,13 +109,13 @@ public final class EngineLauncher {
         return "Game Engine: " + current;
     }
 
-    /** Advanced Horizon controls/graphics for an instance that has Horizon available. */
+    /** Advanced Rust engine controls/graphics for an instance that can use the Rust engine. */
     public static void showEngineSettings(@NonNull Activity activity, @NonNull Target target) {
         if (!offersEngineChoice(activity, target)) {
             String problem = HorizonEngine.supportsInstance(target.minecraftVersionId, target.loader)
                     ? HorizonEngine.deviceProblem(activity)
-                    : "The Horizon engine runs vanilla " + HorizonEngine.MINECRAFT_VERSION + " instances only.";
-            Toast.makeText(activity, problem == null ? "Horizon is not available." : problem,
+                    : "The Rust engine runs vanilla " + HorizonEngine.MINECRAFT_VERSION + " instances only.";
+            Toast.makeText(activity, problem == null ? "The Rust engine is not available." : problem,
                     Toast.LENGTH_LONG).show();
             return;
         }
@@ -128,24 +126,24 @@ public final class EngineLauncher {
 
         TextView note = new TextView(activity);
         note.setText("The game engine itself is selected in this instance's Per Instance Settings. "
-                + "These are advanced Horizon options used only when Horizon is enabled for a "
+                + "These are advanced options used only when the Rust engine is selected for a "
                 + "vanilla Minecraft " + HorizonEngine.MINECRAFT_VERSION + " instance.");
         note.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         note.setPadding(0, 0, 0, pad / 2);
         content.addView(note);
 
         CheckBox controls = new CheckBox(activity);
-        controls.setText("Use DroidBridge controls in Horizon (touch layout, virtual mouse, "
-                + "controller mapping). Off: Horizon's built-in controls.");
+        controls.setText("Use DroidBridge controls in the Rust engine (touch layout, virtual mouse, "
+                + "controller mapping). Off: the engine's built-in controls.");
         controls.setChecked(EnginePreferences.useDroidBridgeControlsForHorizon(activity));
         content.addView(controls);
 
-        // Horizon graphics: rendering mode and Vulkan driver, for every Horizon launch.
+        // Rust engine graphics: rendering mode and Vulkan driver, for every Rust engine launch.
         TextView rendererRow = settingRow(activity, pad);
         TextView driverRow = settingRow(activity, pad);
         Runnable refreshGraphics = () -> {
             String renderer = EnginePreferences.getHorizonRenderer(activity);
-            rendererRow.setText("Horizon renderer: " + HorizonGraphics.rendererLabel(renderer));
+            rendererRow.setText("Renderer: " + HorizonGraphics.rendererLabel(renderer));
             boolean opengl = EnginePreferences.HORIZON_RENDERER_OPENGL.equals(renderer);
             driverRow.setText("Vulkan driver: "
                     + HorizonGraphics.driverLabel(EnginePreferences.getHorizonVulkanDriver(activity))
@@ -153,7 +151,7 @@ public final class EngineLauncher {
         };
         rendererRow.setOnClickListener(view -> {
             List<HorizonGraphics.Choice> choices = HorizonGraphics.rendererChoices();
-            chooseSetting(activity, "Horizon renderer", choices,
+            chooseSetting(activity, "Rust engine renderer", choices,
                     EnginePreferences.getHorizonRenderer(activity), id -> {
                         EnginePreferences.setHorizonRenderer(activity, id);
                         refreshGraphics.run();
@@ -161,7 +159,7 @@ public final class EngineLauncher {
         });
         driverRow.setOnClickListener(view -> {
             List<HorizonGraphics.Choice> choices = HorizonGraphics.driverChoices(activity);
-            chooseSetting(activity, "Vulkan driver for Horizon", choices,
+            chooseSetting(activity, "Vulkan driver for the Rust engine", choices,
                     EnginePreferences.getHorizonVulkanDriver(activity), id -> {
                         EnginePreferences.setHorizonVulkanDriver(activity, id);
                         refreshGraphics.run();
@@ -172,28 +170,28 @@ public final class EngineLauncher {
         content.addView(driverRow);
 
         TextView licenses = new TextView(activity);
-        licenses.setText("Horizon open-source licenses");
+        licenses.setText("Open-source licenses");
         licenses.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         licenses.setPadding(0, pad / 2, 0, pad / 2);
         TypedValue accent = new TypedValue();
         if (activity.getTheme().resolveAttribute(android.R.attr.colorAccent, accent, true)) {
             licenses.setTextColor(accent.data);
         }
-        licenses.setOnClickListener(view -> showHorizonLicenses(activity));
+        licenses.setOnClickListener(view -> OpenSourceLicenses.show(activity));
         content.addView(licenses);
 
         ScrollView scroll = new ScrollView(activity);
         scroll.addView(content);
 
         new MaterialAlertDialogBuilder(activity)
-                .setTitle("Horizon advanced settings")
+                .setTitle("Rust engine advanced settings")
                 .setView(scroll)
                 .setPositiveButton("Save", (dialog, which) -> {
                     EnginePreferences.setUseDroidBridgeControlsForHorizon(activity, controls.isChecked());
-                    LauncherLogManager.append("Horizon options for " + target.instanceKey
+                    LauncherLogManager.append("Rust engine options for " + target.instanceKey
                             + ": droidbridgeControls=" + controls.isChecked());
                 })
-                .setNeutralButton("Horizon Settings", (dialog, which) ->
+                .setNeutralButton("Engine Settings", (dialog, which) ->
                         HorizonSettingsDialog.show(activity))
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
@@ -236,46 +234,6 @@ public final class EngineLauncher {
                 })
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
-    }
-
-    /** Horizon's MIT license and its dependencies' notices, shipped in assets/horizon/. */
-    private static void showHorizonLicenses(@NonNull Activity activity) {
-        StringBuilder text = new StringBuilder();
-        for (String name : new String[]{"horizon/LICENSE.txt", "horizon/THIRD_PARTY_NOTICES.md"}) {
-            String body = readAsset(activity, name);
-            if (body == null) continue;
-            if (text.length() > 0) text.append("\n\n");
-            text.append(body.trim());
-        }
-        if (text.length() == 0) {
-            text.append("Horizon is MIT licensed: https://github.com/ludovic111/horizon/blob/main/LICENSE");
-        }
-        int pad = Math.round(20 * activity.getResources().getDisplayMetrics().density);
-        TextView body = new TextView(activity);
-        body.setText(text);
-        body.setTextIsSelectable(true);
-        body.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        body.setPadding(pad, pad / 2, pad, pad / 2);
-        ScrollView scroll = new ScrollView(activity);
-        scroll.addView(body);
-        new MaterialAlertDialogBuilder(activity)
-                .setTitle("Horizon licenses")
-                .setView(scroll)
-                .setPositiveButton(android.R.string.ok, null)
-                .show();
-    }
-
-    @Nullable
-    private static String readAsset(@NonNull Activity activity, @NonNull String name) {
-        try (InputStream input = activity.getAssets().open(name)) {
-            ByteArrayOutputStream output = new ByteArrayOutputStream();
-            byte[] buffer = new byte[16 * 1024];
-            int read;
-            while ((read = input.read(buffer)) != -1) output.write(buffer, 0, read);
-            return new String(output.toByteArray(), StandardCharsets.UTF_8);
-        } catch (Throwable ignored) {
-            return null;
-        }
     }
 
     private static void startHorizon(

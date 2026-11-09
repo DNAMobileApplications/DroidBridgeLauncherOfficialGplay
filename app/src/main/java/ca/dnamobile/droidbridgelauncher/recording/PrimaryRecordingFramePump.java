@@ -25,7 +25,30 @@ import ca.dnamobile.droidbridgelauncher.runtime.MinecraftGLSurface;
 public final class PrimaryRecordingFramePump {
     private static final String TAG = "PrimaryRecordingFramePump";
 
-    @NonNull private final MinecraftGLSurface source;
+    /**
+     * Where the game's frames come from: the Java engine's {@link MinecraftGLSurface}, or the
+     * Rust engine's own window. Either way it must hold only the game picture, never DroidBridge's
+     * touch controls or other overlays.
+     */
+    public interface FrameSource {
+        boolean isRecordingFrameCaptureReady();
+
+        int getRecordingFrameWidth();
+
+        int getRecordingFrameHeight();
+
+        /**
+         * Copies the latest game frame into {@code bitmap} and calls {@code callback} on
+         * {@code callbackHandler}. Returns false when the copy could not even be started.
+         */
+        boolean requestRecordingFrame(
+                @NonNull Bitmap bitmap,
+                @NonNull Handler callbackHandler,
+                @NonNull MinecraftGLSurface.RecordingFrameCallback callback
+        );
+    }
+
+    @NonNull private final FrameSource source;
     @NonNull private final Surface encoderSurface;
     private final int targetWidth;
     private final int targetHeight;
@@ -46,6 +69,40 @@ public final class PrimaryRecordingFramePump {
 
     public PrimaryRecordingFramePump(
             @NonNull MinecraftGLSurface source,
+            @NonNull Surface encoderSurface,
+            int targetWidth,
+            int targetHeight,
+            int fps
+    ) {
+        this(new FrameSource() {
+            @Override
+            public boolean isRecordingFrameCaptureReady() {
+                return source.isRecordingFrameCaptureReady();
+            }
+
+            @Override
+            public int getRecordingFrameWidth() {
+                return source.getRecordingFrameWidth();
+            }
+
+            @Override
+            public int getRecordingFrameHeight() {
+                return source.getRecordingFrameHeight();
+            }
+
+            @Override
+            public boolean requestRecordingFrame(
+                    @NonNull Bitmap bitmap,
+                    @NonNull Handler callbackHandler,
+                    @NonNull MinecraftGLSurface.RecordingFrameCallback callback
+            ) {
+                return source.requestRecordingFrame(bitmap, callbackHandler, callback);
+            }
+        }, encoderSurface, targetWidth, targetHeight, fps);
+    }
+
+    public PrimaryRecordingFramePump(
+            @NonNull FrameSource source,
             @NonNull Surface encoderSurface,
             int targetWidth,
             int targetHeight,

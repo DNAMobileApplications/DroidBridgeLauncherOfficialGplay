@@ -9898,6 +9898,9 @@ public final class TouchControlsOverlay extends FrameLayout implements TouchCont
         }
     }
 
+    /** Reused for the SDL3 game picture's bounds (asked on every cursor move and draw). */
+    private final RectF sdlPictureBounds = new RectF();
+
     @NonNull
     private GameResolutionSettings.DisplayBounds currentGameDisplayBounds() {
         int width = Math.max(1, getWidth());
@@ -9912,11 +9915,22 @@ public final class TouchControlsOverlay extends FrameLayout implements TouchCont
             );
         }
         if (DroidBridgeSDL3Bootstrap.isRequested()) {
-            // SDL3 Android window/mouse coordinates are physical game-root pixels.
-            // Do not reuse a launcher resolution-profile box for virtual cursor
-            // drawing or delta conversion; that creates the same visual/input split
-            // as the old GameCursorOverlay path when the render buffer is scaled.
-            return new GameResolutionSettings.DisplayBounds(0, 0, width, height);
+            // SDL3's cursor space is the game picture (DroidBridgeSDL3Bootstrap's visual
+            // layout): with an experimental resolution such as 4:3 that is the letterboxed
+            // rectangle, not this whole overlay. Use the live render view's own bounds, the
+            // same ones GameCursorOverlay draws against, so the touch cursor, the drawn
+            // cursor and the slot the game highlights stay together.
+            RectF picture = sdlPictureBounds;
+            if (DroidBridgeSDL3Bootstrap.resolveCursorOverlayBounds(this, picture)
+                    && picture.width() > 1f && picture.height() > 1f) {
+                return new GameResolutionSettings.DisplayBounds(
+                        Math.round(picture.left),
+                        Math.round(picture.top),
+                        Math.max(1, Math.round(picture.width())),
+                        Math.max(1, Math.round(picture.height()))
+                );
+            }
+            return GameResolutionSettings.resolveDisplayBounds(getContext(), width, height);
         }
         return GameResolutionSettings.resolveDisplayBounds(getContext(), width, height);
     }

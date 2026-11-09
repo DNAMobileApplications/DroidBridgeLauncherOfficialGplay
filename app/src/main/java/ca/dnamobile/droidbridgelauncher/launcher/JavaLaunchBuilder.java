@@ -4282,6 +4282,7 @@ public final class JavaLaunchBuilder {
                 addArgumentArray(args, game, replacements);
                 sanitizeAndRepairGameArgs(args, replacements);
                 addLegacySkinProxyGameArgsIfNeeded(args, versionJson);
+                ensureDemoArgument(args);
                 return args;
             }
         }
@@ -4295,7 +4296,23 @@ public final class JavaLaunchBuilder {
 
         sanitizeAndRepairGameArgs(args, replacements);
         addLegacySkinProxyGameArgsIfNeeded(args, versionJson);
+        ensureDemoArgument(args);
         return args;
+    }
+
+    /** True when the account signed in without owning Java Edition: it may only play the demo. */
+    private boolean isDemoLaunch() {
+        return account != null && account.isMicrosoftAccount() && account.isDemoAccount();
+    }
+
+    /**
+     * A demo account always launches Minecraft's demo (--demo), whatever the version JSON says:
+     * old versions have no is_demo_user rule, and loader JSONs can drop it.
+     */
+    private void ensureDemoArgument(@NonNull List<String> args) {
+        if (!isDemoLaunch() || args.contains("--demo")) return;
+        args.add("--demo");
+        Logging.i(TAG, "Demo account: launching Minecraft's demo (--demo)");
     }
 
     @NonNull
@@ -4474,7 +4491,7 @@ public final class JavaLaunchBuilder {
         if ("has_custom_resolution".equals(key)) return true;
 
         // These must stay false unless JavaLauncher has explicit UI/state for them.
-        if ("is_demo_user".equals(key)) return false;
+        if ("is_demo_user".equals(key)) return isDemoLaunch();
         if ("is_quick_play_singleplayer".equals(key)) return false;
         if ("is_quick_play_multiplayer".equals(key)) return false;
         if ("is_quick_play_realms".equals(key)) return false;

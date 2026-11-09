@@ -68,7 +68,7 @@ public final class HorizonDocumentsProvider extends DocumentsProvider {
     }
 
     private String call(String operation, String id, String arg) throws FileNotFoundException {
-        if (!engineLoaded) throw new FileNotFoundException("Horizon engine is not installed");
+        if (!engineLoaded) throw new FileNotFoundException("The Rust engine is not installed");
         return nativeCall(home(), operation, id, arg);
     }
 
@@ -91,7 +91,7 @@ public final class HorizonDocumentsProvider extends DocumentsProvider {
             return cursor;
         } catch (JSONException error) {
             cursor.close();
-            throw new FileNotFoundException("Invalid Horizon document response");
+            throw new FileNotFoundException("Invalid engine document response");
         }
     }
 
@@ -141,7 +141,7 @@ public final class HorizonDocumentsProvider extends DocumentsProvider {
     @Override public ParcelFileDescriptor openDocument(String id, String mode, CancellationSignal signal)
             throws FileNotFoundException {
         if (signal != null) signal.throwIfCanceled();
-        if (!engineLoaded) throw new FileNotFoundException("Horizon engine is not installed");
+        if (!engineLoaded) throw new FileNotFoundException("The Rust engine is not installed");
         return ParcelFileDescriptor.adoptFd(nativeOpen(home(), id, mode));
     }
 

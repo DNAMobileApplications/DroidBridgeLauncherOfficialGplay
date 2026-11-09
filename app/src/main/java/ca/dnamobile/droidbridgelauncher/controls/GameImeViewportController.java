@@ -235,8 +235,15 @@ public final class GameImeViewportController {
     private void applyInsets(int surfaceInset, int targetInset) {
         MinecraftGLSurface surface = minecraftSurface != null
                 ? minecraftSurface : getRegisteredMinecraftSurface();
-        int safeSurfaceInset = surface != null ? clampKeyboardInset(surface, surfaceInset) : 0;
         int safeTargetInset = clampKeyboardInset(gameWindowRoot, targetInset);
+        // With a registered target (an embedded engine such as Horizon) the surface only
+        // translates touches; the picture is shifted by the target inset. Use that exact value
+        // for touches too, so a tap always lands where the finger is, even if the controls
+        // window and the game window ever differ in size.
+        int safeSurfaceInset = surface == null ? 0
+                : (registeredImeViewportTarget != null
+                        ? safeTargetInset
+                        : clampKeyboardInset(surface, surfaceInset));
 
         if (surface != null && safeSurfaceInset != lastSurfaceInset) {
             lastSurfaceInset = safeSurfaceInset;

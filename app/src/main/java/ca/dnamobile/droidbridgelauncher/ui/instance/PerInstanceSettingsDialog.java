@@ -53,6 +53,7 @@ import ca.dnamobile.droidbridgelauncher.R;
 import ca.dnamobile.droidbridgelauncher.engine.EngineLauncher;
 import ca.dnamobile.droidbridgelauncher.engine.EnginePreferences;
 import ca.dnamobile.droidbridgelauncher.engine.GameEngine;
+import ca.dnamobile.droidbridgelauncher.engine.horizon.HorizonAddonsActivity;
 import ca.dnamobile.droidbridgelauncher.engine.horizon.HorizonEngine;
 import ca.dnamobile.droidbridgelauncher.ui.LauncherDialogStyle;
 import ca.dnamobile.droidbridgelauncher.launcher.DistantHorizonsGcMitigation;
@@ -353,13 +354,13 @@ public final class PerInstanceSettingsDialog {
         addSectionTitle(
                 section,
                 "Game Engine",
-                "Java is the default. Horizon (Rust) is an optional experimental engine for vanilla Minecraft "
+                "Java is the default. The Rust engine is an optional, experimental engine for vanilla Minecraft "
                         + HorizonEngine.MINECRAFT_VERSION + " only."
         );
 
         String[] labels = {
                 "Java (default)",
-                "Horizon (Rust) — experimental"
+                "Rust (experimental)"
         };
         gameEngineDropdown = new MaterialAutoCompleteTextView(activity);
         gameEngineDropdown.setInputType(InputType.TYPE_NULL);
@@ -400,18 +401,18 @@ public final class PerInstanceSettingsDialog {
         requirements.setTextColor(LauncherDialogStyle.COLOR_TEXT_SECONDARY);
         requirements.setPadding(0, dp(3), 0, 0);
         requirements.setText(
-                "Horizon does not bypass Minecraft ownership or Microsoft authentication. "
+                "The Rust engine does not bypass Minecraft ownership or Microsoft authentication. "
                         + "It still requires the legitimate Minecraft " + HorizonEngine.MINECRAFT_VERSION
                         + " game files/JAR, and you must be signed in to a Microsoft account that owns "
                         + "Minecraft: Java Edition. DroidBridge verifies the owning account before "
                         + "preparing or launching the 26.3 files. Without a verified owning account, "
-                        + "Horizon will not launch."
+                        + "the Rust engine will not launch."
         );
         section.addView(requirements, matchWrap());
 
         if (!horizonEngineAvailable && deviceProblem != null) {
             TextView unavailable = new TextView(activity);
-            unavailable.setText("Horizon unavailable on this device/build: " + deviceProblem);
+            unavailable.setText("The Rust engine is unavailable on this device/build: " + deviceProblem);
             unavailable.setTextSize(12);
             unavailable.setTypeface(unavailable.getTypeface(), Typeface.BOLD);
             unavailable.setTextColor(LauncherDialogStyle.COLOR_TEXT_SECONDARY);
@@ -420,7 +421,7 @@ public final class PerInstanceSettingsDialog {
         } else {
             MaterialButton advanced = new MaterialButton(
                     activity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle);
-            advanced.setText("Horizon Advanced Settings");
+            advanced.setText("Rust Engine Advanced Settings");
             advanced.setAllCaps(false);
             advanced.setOnClickListener(view -> EngineLauncher.showEngineSettings(
                     activity,
@@ -435,6 +436,17 @@ public final class PerInstanceSettingsDialog {
             LinearLayout.LayoutParams advancedParams = matchWrap();
             advancedParams.setMargins(0, dp(8), 0, 0);
             section.addView(advanced, advancedParams);
+
+            // Horizon's own mods (.hmod), native-mod switches and shader packs for this instance.
+            MaterialButton addons = new MaterialButton(
+                    activity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle);
+            addons.setText("Add-ons (mods, shaders)");
+            addons.setAllCaps(false);
+            addons.setOnClickListener(view -> HorizonAddonsActivity.start(
+                    activity, target.getGameDirectory(), target.getName()));
+            LinearLayout.LayoutParams addonsParams = matchWrap();
+            addonsParams.setMargins(0, dp(6), 0, 0);
+            section.addView(addons, addonsParams);
         }
         return section;
     }

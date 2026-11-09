@@ -105,6 +105,23 @@ public final class AccountStore {
         }
     }
 
+    /**
+     * A Microsoft account that signed in but doesn't own Minecraft: Java Edition. It plays the
+     * game's demo (the launch always adds --demo), as Mojang's own launcher allows. It gets no
+     * install entitlement and never counts as verified ownership.
+     */
+    public void saveDemoMicrosoftAccount(@NonNull Account account) {
+        if (!account.isMicrosoftAccount() || !account.isDemoAccount()) {
+            throw new SecurityException("Only a demo Microsoft account can be saved here.");
+        }
+        Account microsoft = account.asMicrosoftAccount();
+        boolean stored = preferences.edit()
+                .putString(KEY_ACCOUNT_JSON, microsoft.toJson().toString())
+                .putString(KEY_LAST_MICROSOFT_ACCOUNT_JSON, microsoft.toJson().toString())
+                .commit();
+        if (!stored) throw new IllegalStateException("Could not store the demo Microsoft account.");
+    }
+
     public void useLastMicrosoftAccount() {
         Account account = loadLastMicrosoftAccount();
         if (account == null) {
@@ -447,6 +464,8 @@ public final class AccountStore {
         public final String skinVariant;
         public final String offlineSkinPath;
         public final String offlineSkinModel;
+        /** Signed in, but doesn't own Java Edition: plays the demo (see isDemoAccount). */
+        public final boolean demo;
 
         public Account(@NonNull String email, @NonNull String displayName, @NonNull String idToken, @NonNull String accessToken) {
             this(TYPE_MICROSOFT, "", email, displayName, idToken, accessToken, "", "", "", "", "", "", "classic", "", "none");
@@ -495,6 +514,28 @@ public final class AccountStore {
                        @NonNull String skinVariant,
                        @NonNull String offlineSkinPath,
                        @NonNull String offlineSkinModel) {
+            this(accountType, accountId, email, displayName, idToken, accessToken, refreshToken,
+                    minecraftAccessToken, minecraftName, minecraftUuid, xuid, skinUrl, skinVariant,
+                    offlineSkinPath, offlineSkinModel, false);
+        }
+
+        public Account(@NonNull String accountType,
+                       @NonNull String accountId,
+                       @NonNull String email,
+                       @NonNull String displayName,
+                       @NonNull String idToken,
+                       @NonNull String accessToken,
+                       @NonNull String refreshToken,
+                       @NonNull String minecraftAccessToken,
+                       @NonNull String minecraftName,
+                       @NonNull String minecraftUuid,
+                       @NonNull String xuid,
+                       @NonNull String skinUrl,
+                       @NonNull String skinVariant,
+                       @NonNull String offlineSkinPath,
+                       @NonNull String offlineSkinModel,
+                       boolean demo) {
+            this.demo = demo;
             this.accountType = accountType;
             this.accountId = accountId;
             this.email = email;
@@ -510,6 +551,27 @@ public final class AccountStore {
             this.skinVariant = skinVariant;
             this.offlineSkinPath = offlineSkinPath;
             this.offlineSkinModel = offlineSkinModel;
+        }
+
+        /** The player name a demo account plays as. */
+        public static final String DEMO_PLAYER_NAME = "Player";
+
+        /**
+         * A demo account: the signed-in Microsoft account's tokens, the name "Player" and a UUID
+         * made from its Xbox user hash. That UUID is a version 3 (name-based) UUID, which a real
+         * Minecraft profile never has: isDemoAccount() recognises it even if the flag is lost.
+         */
+        @NonNull
+        public static Account demo(@NonNull String displayName,
+                                   @NonNull String accessToken,
+                                   @NonNull String refreshToken,
+                                   @NonNull String minecraftAccessToken,
+                                   @NonNull String xboxUserHash) {
+            String uuid = UUID.nameUUIDFromBytes(("DroidBridgeDemo:" + xboxUserHash)
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+            return new Account(TYPE_MICROSOFT, "", "", displayName, "", accessToken, refreshToken,
+                    minecraftAccessToken, DEMO_PLAYER_NAME, uuid, xboxUserHash, "", "classic", "", "none",
+                    true);
         }
 
         @NonNull
@@ -535,7 +597,8 @@ public final class AccountStore {
         Account asMicrosoftAccount() {
             if (TYPE_MICROSOFT.equals(accountType)) return this;
             return new Account(TYPE_MICROSOFT, accountId, email, displayName, idToken, accessToken, refreshToken,
-                    minecraftAccessToken, minecraftName, minecraftUuid, xuid, skinUrl, skinVariant, "", "none");
+                    minecraftAccessToken, minecraftName, minecraftUuid, xuid, skinUrl, skinVariant, "", "none",
+                    isDemoAccount());
         }
 
         @NonNull
@@ -552,6 +615,22 @@ public final class AccountStore {
 
         public boolean isMicrosoftAccount() {
             return TYPE_MICROSOFT.equals(accountType);
+        }
+
+        /**
+         * A Microsoft account without Java Edition: it may only play the demo. True for the flag,
+         * and also for a version 3 (name-based) Minecraft UUID, which only demo accounts have
+         * here (real Minecraft profiles are version 4), so a demo account can never become a
+         * full one by losing the flag (an older account list, an edited file).
+         */
+        public boolean isDemoAccount() {
+            if (demo) return true;
+            if (!isMicrosoftAccount() || !notEmpty(minecraftUuid)) return false;
+            try {
+                return UUID.fromString(minecraftUuid.trim()).version() == 3;
+            } catch (IllegalArgumentException ignored) {
+                return false;
+            }
         }
 
         public boolean hasMinecraftSession() {
@@ -589,6 +668,7 @@ public final class AccountStore {
                 json.put("skinVariant", skinVariant);
                 json.put("offlineSkinPath", offlineSkinPath);
                 json.put("offlineSkinModel", offlineSkinModel);
+                json.put("demo", isDemoAccount());
             } catch (JSONException ignored) {
             }
             return json;
@@ -624,7 +704,8 @@ public final class AccountStore {
                     json.optString("skinUrl", ""),
                     json.optString("skinVariant", "classic"),
                     json.optString("offlineSkinPath", ""),
-                    json.optString("offlineSkinModel", "none")
+                    json.optString("offlineSkinModel", "none"),
+                    json.optBoolean("demo", false)
             );
         }
 
