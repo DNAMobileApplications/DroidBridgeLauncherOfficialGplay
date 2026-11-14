@@ -14,8 +14,6 @@ package ca.dnamobile.droidbridgelauncher.launcher;
 
 import android.content.Context;
 import android.system.Os;
-import android.view.Display;
-import android.view.WindowManager;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -725,25 +723,6 @@ public final class DroidBridgeGameProcessLauncher {
         }
     }
 
-    private static void preloadRawInstallerRuntime(@NonNull File runtimeDirectory) {
-        File runtimeLibDir = resolveRuntimeLibDir(runtimeDirectory);
-        File jvmLibraryDir = resolveJvmLibraryDir(runtimeLibDir);
-
-        dlopenOptional(new File(runtimeLibDir, "jli/libjli.so"));
-        dlopenOptional(new File(runtimeLibDir, "libjli.so"));
-        dlopenOptional(new File(jvmLibraryDir, "libjvm.so"));
-        dlopenOptional(new File(runtimeLibDir, "libverify.so"));
-        dlopenOptional(new File(runtimeLibDir, "libjava.so"));
-        dlopenOptional(new File(runtimeLibDir, "libzip.so"));
-        dlopenOptional(new File(runtimeLibDir, "libnet.so"));
-        dlopenOptional(new File(runtimeLibDir, "libnio.so"));
-        dlopenOptional(new File(runtimeLibDir, "libawt.so"));
-        dlopenOptional(new File(runtimeLibDir, "libawt_headless.so"));
-        dlopenOptional(new File(runtimeLibDir, "libfreetype.so"));
-        dlopenOptional(new File(runtimeLibDir, "libfontmanager.so"));
-
-    }
-
     private static boolean dlopenOptional(@NonNull File file) {
         if (!file.isFile()) return false;
         return dlopenOptional(file.getAbsolutePath());
@@ -1034,11 +1013,6 @@ public final class DroidBridgeGameProcessLauncher {
         if (args.isEmpty()) return false;
         String previous = args.get(args.size() - 1);
         return isClasspathFlag(previous) || isModulePathFlag(previous);
-    }
-
-    private static boolean hasClasspathFlagImmediatelyBefore(@NonNull ArrayList<String> args) {
-        if (args.isEmpty()) return false;
-        return isClasspathFlag(args.get(args.size() - 1));
     }
 
     private static boolean isClasspathFlag(@Nullable String value) {

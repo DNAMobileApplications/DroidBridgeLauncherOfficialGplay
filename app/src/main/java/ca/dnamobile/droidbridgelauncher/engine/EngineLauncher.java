@@ -30,6 +30,9 @@ import ca.dnamobile.droidbridgelauncher.engine.horizon.HorizonEngine;
 import ca.dnamobile.droidbridgelauncher.engine.horizon.HorizonGraphics;
 import ca.dnamobile.droidbridgelauncher.engine.horizon.HorizonLaunchActivity;
 import ca.dnamobile.droidbridgelauncher.engine.horizon.HorizonSettingsDialog;
+import ca.dnamobile.droidbridgelauncher.engine.rustcraft.RustcraftEngine;
+import ca.dnamobile.droidbridgelauncher.engine.rustcraft.RustcraftLaunchActivity;
+import ca.dnamobile.droidbridgelauncher.engine.rustcraft.RustcraftMods;
 import ca.dnamobile.droidbridgelauncher.legal.OpenSourceLicenses;
 import ca.dnamobile.droidbridgelauncher.logs.LauncherLogManager;
 import ca.dnamobile.droidbridgelauncher.settings.LauncherPreferences;
@@ -37,9 +40,11 @@ import ca.dnamobile.droidbridgelauncher.settings.LauncherPreferences;
 /**
  * Picks the engine for a Play press.
  *
- * Horizon is opt-in per instance. Every launch path calls {@link #interceptLaunch} before it
- * starts GameActivity. Java remains the default unless the player explicitly selects Horizon
- * in that instance's Per Instance Settings. No launch-time engine chooser is shown.
+ * Horizon (vanilla 26.3) and Rust Craft (vanilla 1.0 and 1.1: a title update for each, see
+ * RustcraftEngine) are opt-in per instance. Every launch
+ * path calls {@link #interceptLaunch} before it starts GameActivity. Java remains the default
+ * unless the player explicitly selects a Rust engine in that instance's Per Instance Settings.
+ * No launch-time engine chooser is shown.
  */
 public final class EngineLauncher {
     private static final String HORIZON_LABEL = "Rust (experimental)";
@@ -73,15 +78,24 @@ public final class EngineLauncher {
 
     /** True when the engine choice applies to this instance on this device. */
     public static boolean offersEngineChoice(@NonNull Activity activity, @NonNull Target target) {
+        return offersHorizon(activity, target) || offersRustcraft(activity, target);
+    }
+
+    private static boolean offersHorizon(@NonNull Activity activity, @NonNull Target target) {
         return HorizonEngine.isAvailableFor(activity, target.minecraftVersionId, target.loader)
                 && target.gameDirectory != null;
     }
 
+    private static boolean offersRustcraft(@NonNull Activity activity, @NonNull Target target) {
+        return RustcraftEngine.isAvailableFor(activity, target.minecraftVersionId, target.loader)
+                && target.gameDirectory != null;
+    }
+
     /**
-     * Handles a Play press when the Horizon engine is involved.
+     * Handles a Play press when a Rust engine (Horizon or rustcraft) is involved.
      *
-     * @param javaLaunch retained for call-site compatibility; Java remains the caller's normal path
-     * @return true when this call started Horizon; false when the caller should launch Java
+     * @param ignoredJavaLaunch retained for call-site compatibility; Java remains the caller's normal path
+     * @return true when this call started a Rust engine; false when the caller should launch Java
      */
     public static boolean interceptLaunch(
             @NonNull Activity activity,
@@ -92,26 +106,37 @@ public final class EngineLauncher {
     ) {
         if (!offersEngineChoice(activity, target)) return false;
         GameEngine saved = EnginePreferences.get(activity, target.instanceKey);
-        if (saved != GameEngine.HORIZON) {
-            // Java is deliberately the default. A missing preference never prompts and never
-            // opts the player into the experimental Rust engine.
-            return false;
+        // Java is deliberately the default. A missing preference never prompts and never
+        // opts the player into an experimental Rust engine.
+        if (saved == GameEngine.HORIZON && offersHorizon(activity, target)) {
+            startHorizon(activity, target, quickPlayWorld, quickPlayServer);
+            return true;
         }
-        startHorizon(activity, target, quickPlayWorld, quickPlayServer);
-        return true;
+        if (saved == GameEngine.RUSTCRAFT && offersRustcraft(activity, target)) {
+            // rustcraft is singleplayer only: a quick play server falls back to its title screen.
+            startRustcraft(activity, target, quickPlayWorld);
+            return true;
+        }
+        return false;
     }
 
     /** The engine row of an instance's settings menu. */
     @NonNull
     public static String engineMenuLabel(@NonNull Activity activity, @NonNull Target target) {
         GameEngine saved = EnginePreferences.get(activity, target.instanceKey);
-        String current = saved == GameEngine.HORIZON ? HORIZON_LABEL : JAVA_LABEL;
+        String current = saved == GameEngine.HORIZON ? HORIZON_LABEL
+                : saved == GameEngine.RUSTCRAFT
+                ? RustcraftEngine.labelFor(target.minecraftVersionId) + " (experimental)" : JAVA_LABEL;
         return "Game Engine: " + current;
     }
 
     /** Advanced Rust engine controls/graphics for an instance that can use the Rust engine. */
     public static void showEngineSettings(@NonNull Activity activity, @NonNull Target target) {
-        if (!offersEngineChoice(activity, target)) {
+        if (RustcraftEngine.supportsInstance(target.minecraftVersionId, target.loader)) {
+            showRustcraftSettings(activity, target);
+            return;
+        }
+        if (!offersHorizon(activity, target)) {
             String problem = HorizonEngine.supportsInstance(target.minecraftVersionId, target.loader)
                     ? HorizonEngine.deviceProblem(activity)
                     : "The Rust engine runs vanilla " + HorizonEngine.MINECRAFT_VERSION + " instances only.";
@@ -132,11 +157,8 @@ public final class EngineLauncher {
         note.setPadding(0, 0, 0, pad / 2);
         content.addView(note);
 
-        CheckBox controls = new CheckBox(activity);
-        controls.setText("Use DroidBridge controls in the Rust engine (touch layout, virtual mouse, "
-                + "controller mapping). Off: the engine's built-in controls.");
-        controls.setChecked(EnginePreferences.useDroidBridgeControlsForHorizon(activity));
-        content.addView(controls);
+        // The Rust engine always uses DroidBridge's controls (touch layout, virtual mouse,
+        // controller mapping): its own built-in controls are not offered.
 
         // Rust engine graphics: rendering mode and Vulkan driver, for every Rust engine launch.
         TextView rendererRow = settingRow(activity, pad);
@@ -187,14 +209,103 @@ public final class EngineLauncher {
                 .setTitle("Rust engine advanced settings")
                 .setView(scroll)
                 .setPositiveButton("Save", (dialog, which) -> {
-                    EnginePreferences.setUseDroidBridgeControlsForHorizon(activity, controls.isChecked());
-                    LauncherLogManager.append("Rust engine options for " + target.instanceKey
-                            + ": droidbridgeControls=" + controls.isChecked());
+                    LauncherLogManager.append("Rust engine options saved for " + target.instanceKey);
                 })
                 .setNeutralButton("Engine Settings", (dialog, which) ->
                         HorizonSettingsDialog.show(activity))
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
+    }
+
+    /** rustcraft's controls and renderer, for every rustcraft launch. */
+    private static void showRustcraftSettings(@NonNull Activity activity, @NonNull Target target) {
+        if (!offersRustcraft(activity, target)) {
+            String problem = RustcraftEngine.deviceProblem(activity, target.minecraftVersionId);
+            Toast.makeText(activity, problem == null
+                            ? RustcraftEngine.labelFor(target.minecraftVersionId) + " is not available."
+                            : problem,
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+        int pad = Math.round(20 * activity.getResources().getDisplayMetrics().density);
+        LinearLayout content = new LinearLayout(activity);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(pad, pad / 2, pad, 0);
+
+        TextView note = new TextView(activity);
+        note.setText("The game engine itself is selected in this instance's Per Instance Settings. "
+                + "These options are used only when the Rust engine is selected for a vanilla "
+                + "Minecraft " + RustcraftEngine.versionsText() + " instance (this one plays "
+                + RustcraftEngine.labelFor(target.minecraftVersionId) + "). Video settings "
+                + "(graphics, render distance, mouse) are in the game's own Options menu and are "
+                + "saved in the instance's options.txt.");
+        note.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        note.setPadding(0, 0, 0, pad / 2);
+        content.addView(note);
+
+        CheckBox controls = new CheckBox(activity);
+        controls.setText("Use DroidBridge controls (touch layout, virtual mouse, controller mapping). "
+                + "Off: a physical keyboard and mouse only.");
+        controls.setChecked(EnginePreferences.useDroidBridgeControlsForRustcraft(activity));
+        content.addView(controls);
+
+        List<HorizonGraphics.Choice> renderers = java.util.Arrays.asList(
+                new HorizonGraphics.Choice(EnginePreferences.RUSTCRAFT_RENDERER_AUTO, "Automatic (Vulkan when available)"),
+                new HorizonGraphics.Choice(EnginePreferences.RUSTCRAFT_RENDERER_VULKAN, "Vulkan"),
+                new HorizonGraphics.Choice(EnginePreferences.RUSTCRAFT_RENDERER_OPENGL, "OpenGL ES"));
+        TextView rendererRow = settingRow(activity, pad);
+        Runnable refresh = () -> {
+            String current = EnginePreferences.getRustcraftRenderer(activity);
+            String label = renderers.get(0).label;
+            for (HorizonGraphics.Choice choice : renderers) {
+                if (choice.id.equals(current)) label = choice.label;
+            }
+            rendererRow.setText("Renderer: " + label);
+        };
+        rendererRow.setOnClickListener(view -> chooseSetting(activity, "Rust Craft renderer",
+                renderers, EnginePreferences.getRustcraftRenderer(activity), id -> {
+                    EnginePreferences.setRustcraftRenderer(activity, id);
+                    refresh.run();
+                }));
+        refresh.run();
+        content.addView(rendererRow);
+
+        // Rust Craft's own mods (.rmod files in the instance's mods folder)
+        TextView mods = settingRow(activity, pad);
+        int count = target.gameDirectory == null ? 0
+                : RustcraftMods.installedCount(target.gameDirectory);
+        mods.setText("Mods (.rmod): " + (count == 0 ? "none" : count + " installed"));
+        content.addView(mods);
+
+        TextView licenses = new TextView(activity);
+        licenses.setText("Rust Craft licenses");
+        licenses.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        licenses.setPadding(0, pad / 2, 0, pad / 2);
+        TypedValue accent = new TypedValue();
+        if (activity.getTheme().resolveAttribute(android.R.attr.colorAccent, accent, true)) {
+            licenses.setTextColor(accent.data);
+        }
+        // Rust Craft's own license and libraries (it has nothing of Horizon in it)
+        licenses.setOnClickListener(view -> OpenSourceLicenses.showRustcraft(activity));
+        content.addView(licenses);
+
+        ScrollView scroll = new ScrollView(activity);
+        scroll.addView(content);
+
+        androidx.appcompat.app.AlertDialog settings = new MaterialAlertDialogBuilder(activity)
+                .setTitle(RustcraftEngine.labelFor(target.minecraftVersionId) + " settings")
+                .setView(scroll)
+                .setPositiveButton("Save", (dialog, which) -> {
+                    EnginePreferences.setUseDroidBridgeControlsForRustcraft(activity, controls.isChecked());
+                    LauncherLogManager.append("rustcraft options for " + target.instanceKey
+                            + ": droidbridgeControls=" + controls.isChecked());
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+        mods.setOnClickListener(view -> {
+            settings.dismiss();
+            RustcraftMods.show(activity, target.gameDirectory);
+        });
     }
 
     private interface Chosen {
@@ -254,6 +365,25 @@ public final class EngineLauncher {
             intent.putExtra(HorizonLaunchActivity.EXTRA_QUICK_PLAY_WORLD, quickPlayWorld.trim());
         } else if (quickPlayServer != null && !quickPlayServer.trim().isEmpty()) {
             intent.putExtra(HorizonLaunchActivity.EXTRA_QUICK_PLAY_SERVER, quickPlayServer.trim());
+        }
+        activity.startActivity(intent);
+    }
+
+    private static void startRustcraft(
+            @NonNull Activity activity,
+            @NonNull Target target,
+            @Nullable String quickPlayWorld
+    ) {
+        LauncherPreferences.recordInstancePlayed(activity, target.instanceKey);
+        Intent intent = new Intent(activity, RustcraftLaunchActivity.class);
+        intent.putExtra(RustcraftLaunchActivity.EXTRA_INSTANCE_KEY, target.instanceKey);
+        // which title update: TU1 for a 1.0 instance, TU2 for 1.1
+        intent.putExtra(RustcraftLaunchActivity.EXTRA_MINECRAFT_VERSION, target.minecraftVersionId);
+        if (target.gameDirectory != null) {
+            intent.putExtra(RustcraftLaunchActivity.EXTRA_GAME_DIR, target.gameDirectory.getAbsolutePath());
+        }
+        if (quickPlayWorld != null && !quickPlayWorld.trim().isEmpty()) {
+            intent.putExtra(RustcraftLaunchActivity.EXTRA_QUICK_PLAY_WORLD, quickPlayWorld.trim());
         }
         activity.startActivity(intent);
     }

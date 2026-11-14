@@ -435,72 +435,6 @@ public final class DriverPluginManager {
                 + " PANVK_STATS=0 shaderCache=on");
     }
 
-    private static void applyDirectFreedrenoKgslEnvironment(@NonNull LinkedHashMap<String, String> env) {
-        // v61: saved Mesa Freedreno KGSL is no longer a Vulkan Zink alias.
-        // Reinforce the renderer's direct-renderer direct Mesa env here because
-        // DriverPluginManager is merged after renderer.getRendererEnv().
-        env.put("DROIDBRIDGE_MESA", "1");
-        env.put("DROIDBRIDGE_MESA_MODE", "freedreno_kgsl");
-        env.put("DROIDBRIDGE_MESA_SAFE_SWAPS", "1");
-        env.put("DROIDBRIDGE_MESA_DRIVER", "kgsl");
-        env.put("force_gl_vendor", "freedreno/DroidBridge");
-        env.put("DROIDBRIDGE_FREEDRENO_MESA_V61", "1");
-        env.put("DROIDBRIDGE_MESA_AAR_SINGLE_SOURCE", "1");
-        env.put("DROIDBRIDGE_FREEDRENO_MESA_AAR_V72", "1");
-
-        env.put("DROIDBRIDGE_RENDERER", "freedreno_kgsl");
-        env.put("DROIDBRIDGE_RENDERER_MESA_MODE", "freedreno_kgsl");
-        env.put("MESA_LOADER_DRIVER_OVERRIDE", "kgsl");
-        env.put("GALLIUM_DRIVER", "");
-        env.put("EGL_PLATFORM", "android");
-        env.put("FORCE_VSYNC", "false");
-
-        env.put("LIBGL_ES", "2");
-        env.put("MESA_GL_VERSION_OVERRIDE", "3.3COMPAT");
-        env.put("MESA_GLSL_VERSION_OVERRIDE", "330");
-        env.put("MESA_GLSL_CACHE_DISABLE", "false");
-        env.put("MESA_SHADER_CACHE_DISABLE", "false");
-        env.put("LIBGL_MIPMAP", "3");
-        env.put("LIBGL_NOINTOVLHACK", "1");
-        env.put("LIBGL_NORMALIZE", "1");
-        env.put("LIBGL_NOERROR", "0");
-        env.put("allow_higher_compat_version", "true");
-        env.put("force_glsl_extensions_warn", "true");
-        env.put("allow_glsl_extension_directive_midshader", "true");
-
-        env.put("DROIDBRIDGE_MESA_DESKTOP_GL", "1");
-        env.put("DROIDBRIDGE_EGL_FORCE_DESKTOP_GL", "1");
-        env.put("DROIDBRIDGE_EGL_NO_SYSTEM_FALLBACK", "1");
-
-        env.put("DROIDBRIDGE_EGL", DroidBridgeMesaSupport.LIB_EGL_MESA);
-        env.put("DROIDBRIDGE_EGL_LIBRARY", DroidBridgeMesaSupport.LIB_EGL_MESA);
-        env.put("DROIDBRIDGE_EGL_LIBRARY", DroidBridgeMesaSupport.LIB_EGL_MESA);
-        env.put("DROIDBRIDGE_RENDERER_LIBRARY", DroidBridgeMesaSupport.LIB_EGL_MESA);
-        env.put("DROIDBRIDGE_RENDERER_LIBRARY", DroidBridgeMesaSupport.LIB_EGL_MESA);
-        env.put("LIB_MESA_NAME", DroidBridgeMesaSupport.LIB_EGL_MESA);
-
-        env.put("DROIDBRIDGE_USE_SYSTEM_VULKAN", "");
-        env.put("DRIVER_PATH", "");
-        env.put("VK_ICD_FILENAMES", "");
-        env.put("VK_DRIVER_FILES", "");
-        env.put("DROIDBRIDGE_LOAD_TURNIP", "");
-        env.put("DROIDBRIDGE_LOAD_TURNIP", "");
-        env.put("DROIDBRIDGE_USE_CUSTOM_TURNIP", "");
-        env.put("DROIDBRIDGE_CUSTOM_VULKAN_DRIVER", "");
-        env.put("DROIDBRIDGE_CUSTOM_VULKAN_DRIVER", "");
-        env.put("DROIDBRIDGE_CUSTOM_VULKAN_DRIVER_NAME", "");
-        env.put("DROIDBRIDGE_CUSTOM_VULKAN_DRIVER_DIR", "");
-        env.put("DROIDBRIDGE_CUSTOM_VULKAN_SUPPORT_DIR", "");
-        env.put("DROIDBRIDGE_LOAD_CUSTOM_VULKAN", "");
-        env.put("ZINK_DEBUG", "");
-        env.put("ZINK_DESCRIPTORS", "");
-
-        env.put("OSMESA_LIB", "");
-        env.put("DROIDBRIDGE_OSMESA_LIBRARY", "");
-        env.put("OSMESA_LIBRARY", "");
-        env.put("LIBGL_OSMESA", "");
-    }
-
     private static void applyGlobalVulkanDriverEnvironment(
             @NonNull Context context,
             @NonNull LinkedHashMap<String, String> env,
@@ -892,22 +826,6 @@ public final class DriverPluginManager {
         } catch (Throwable throwable) {
             Logging.e(TAG, "Unable to write Vulkan ICD for " + driver.getName(), throwable);
             return null;
-        }
-    }
-
-    private static void addBuiltInTurnipIfAvailable(@NonNull Context context) {
-        ArrayList<File> dirs = new ArrayList<>();
-        if (context.getApplicationInfo().nativeLibraryDir != null) {
-            addDirIfValid(dirs, new File(context.getApplicationInfo().nativeLibraryDir));
-        }
-        if (PathManager.DIR_NATIVE_LIB != null) addDirIfValid(dirs, new File(PathManager.DIR_NATIVE_LIB));
-
-        for (File dir : dirs) {
-            File vulkan = findTurnipLibrary(dir);
-            if (vulkan != null) {
-                addDriver(new Driver("Bundled Turnip/Freedreno", Driver.Type.TURNIP, null, dir, vulkan));
-                return;
-            }
         }
     }
 

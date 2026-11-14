@@ -815,12 +815,6 @@ final class DualScreenControlsView extends View {
         dualSettingsOpen = false;
     }
 
-    private void addButton(float left, float top, float width, float height,
-                           @NonNull String label, @NonNull String subLabel,
-                           @NonNull String action, boolean holdAction) {
-        buttons.add(new ButtonRegion(new RectF(left, top, left + width, top + height), label, subLabel, action, holdAction));
-    }
-
     @Override
     protected void onDraw(@NonNull Canvas canvas) {
         super.onDraw(canvas);
@@ -863,193 +857,7 @@ final class DualScreenControlsView extends View {
         // though the overlay was still present underneath.
     }
 
-    private void drawTitle(@NonNull Canvas canvas) {
-        drawRoundRect(canvas, titleRect, Color.rgb(15, 20, 31), Color.rgb(42, 57, 76), 18f);
-        text.setColor(Color.WHITE);
-        text.setFakeBoldText(true);
-        text.setTextAlign(Paint.Align.LEFT);
-        text.setTextSize(sp(16));
-        canvas.drawText("DroidBridge Dual Screen HUD + Controls", titleRect.left + dp(16), titleRect.centerY() - dp(2), text);
-        text.setFakeBoldText(false);
-        text.setTextSize(sp(9));
-        text.setColor(Color.rgb(173, 185, 202));
-        canvas.drawText("External screen stays clean; bottom screen acts as the Minecraft HUD + touch controller.", titleRect.left + dp(16), titleRect.centerY() + dp(18), text);
-    }
 
-    private void drawStatus(@NonNull Canvas canvas) {
-        drawRoundRect(canvas, statusRect, Color.rgb(12, 16, 25), Color.rgb(35, 48, 66), 16f);
-        float left = statusRect.left + dp(14);
-        float right = statusRect.right - dp(14);
-        float top = statusRect.top + dp(10);
-
-        if (hudState.isFresh()) {
-            if (hudState.selectedSlot >= 0 && hudState.selectedSlot < SLOT_COUNT) selectedSlot = hudState.selectedSlot;
-            drawHudMirror(canvas, left, top, right, statusRect.bottom - dp(10), hudState, false);
-        } else {
-            // Draw a visible fallback HUD instead of leaving this panel empty. This makes it
-            // obvious the bottom-screen renderer is active even before the mod starts writing
-            // live state. Once a valid JSON state file is parsed, drawHudMirror() above uses
-            // the real values automatically.
-            HudState fallback = HudState.fallback();
-            drawHudMirror(canvas, left, top, right, statusRect.bottom - dp(10), fallback, true);
-            text.setTextAlign(Paint.Align.LEFT);
-            text.setColor(Color.rgb(210, 218, 231));
-            text.setFakeBoldText(true);
-            text.setTextSize(sp(11));
-            canvas.drawText("HUD mirror waiting for live state", left, statusRect.bottom - dp(20), text);
-            text.setFakeBoldText(false);
-            text.setTextSize(sp(8));
-            text.setColor(Color.rgb(147, 160, 179));
-            canvas.drawText(fitText("State file: " + hudStateFile.getAbsolutePath(), Math.max(dp(120), right - left), text), left, statusRect.bottom - dp(6), text);
-        }
-    }
-
-    private void drawHudMirror(@NonNull Canvas canvas, float left, float top, float right, float bottom, @NonNull HudState state, boolean fallback) {
-        float d = getResources().getDisplayMetrics().density;
-        float rowGap = Math.max(5f * d, (bottom - top) * 0.055f);
-        float pip = Math.max(12f * d, Math.min(18f * d, (bottom - top) * 0.19f));
-        float row1 = top;
-        float row2 = row1 + pip + rowGap;
-        float row3 = row2 + pip + rowGap;
-
-        drawHearts(canvas, left, row1, state.health, state.maxHealth, state.absorption);
-        drawFood(canvas, right - dp(186), row1, state.food);
-        if (state.armor > 0) drawArmor(canvas, left, row2, state.armor);
-        drawAir(canvas, right - dp(186), row2, state.air, state.maxAir);
-        drawXp(canvas, left, row3, right, row3 + Math.max(dp(12), pip * 0.62f), state.experienceProgress, state.experienceLevel);
-
-        text.setTextAlign(Paint.Align.RIGHT);
-        text.setFakeBoldText(false);
-        text.setTextSize(sp(10));
-        text.setColor(Color.rgb(176, 188, 206));
-        String screen = fallback ? "Fallback HUD - waiting for live JSON" : (state.screenTitle == null || state.screenTitle.trim().isEmpty() ? "In game" : state.screenTitle);
-        canvas.drawText(fitText(screen, Math.max(dp(96), right - left - dp(280)), text), right, row2 + pip - dp(1), text);
-    }
-
-
-    private void drawHudStatusBackplates(@NonNull Canvas canvas, float left, float row1, float right, float row2, float pip) {
-        float mid = (left + right) * 0.5f;
-        float top = row1 - dp(5);
-        float bottom = row2 + pip + dp(6);
-        scratch.set(left - dp(5), top, Math.min(left + dp(292), mid - dp(12)), bottom);
-        drawHudBackplate(canvas, scratch);
-        scratch.set(Math.max(right - dp(235), mid + dp(12)), top, right + dp(5), bottom);
-        drawHudBackplate(canvas, scratch);
-    }
-
-    private void drawHudBackplate(@NonNull Canvas canvas, @NonNull RectF r) {
-        fill.setStyle(Paint.Style.FILL);
-        fill.setColor(Color.argb(46, 28, 36, 52));
-        canvas.drawRoundRect(r, dp(11), dp(11), fill);
-        stroke.setStyle(Paint.Style.STROKE);
-        stroke.setStrokeWidth(dp(1));
-        stroke.setColor(Color.argb(70, 79, 104, 139));
-        canvas.drawRoundRect(r, dp(11), dp(11), stroke);
-    }
-
-    private void drawHearts(@NonNull Canvas canvas, float x, float y, float health, float maxHealth, float absorption) {
-        if (maxHealth <= 0f) maxHealth = 20f;
-        if (health < 0f) health = maxHealth;
-        int containers = Math.max(10, Math.min(20, (int) Math.ceil(Math.max(maxHealth, 20f) / 2f)));
-        float value = Math.max(0f, health) / 2f;
-        if (!drawHudSpritePips(canvas, x, y, containers, value, "heart_full", "heart_half", "heart_container")) {
-            drawHudPips(canvas, x, y, containers, value, Color.rgb(227, 49, 58), Color.rgb(77, 30, 39), "heart");
-        }
-        if (absorption > 0f) {
-            drawHudPips(canvas, x + dp(186), y, Math.min(10, (int) Math.ceil(absorption / 2f)), absorption / 2f, Color.rgb(238, 201, 69), Color.rgb(80, 65, 25), "heart");
-        }
-        text.setTextAlign(Paint.Align.LEFT);
-        text.setTextSize(sp(10));
-        text.setColor(Color.rgb(231, 205, 208));
-        canvas.drawText(String.format(Locale.US, "%.0f/%.0f", Math.max(0f, health), Math.max(0f, maxHealth)), x + dp(212), y + dp(13), text);
-    }
-
-    private void drawFood(@NonNull Canvas canvas, float x, float y, int food) {
-        if (food < 0) food = 20;
-        if (!drawHudSpritePips(canvas, x, y, 10, Math.max(0, food) / 2f, "food_full", "food_half", "food_empty")) {
-            drawHudPips(canvas, x, y, 10, Math.max(0, food) / 2f, Color.rgb(229, 139, 46), Color.rgb(73, 46, 22), "food");
-        }
-        text.setTextAlign(Paint.Align.LEFT);
-        text.setTextSize(sp(10));
-        text.setColor(Color.rgb(238, 214, 176));
-        canvas.drawText("Food " + Math.max(0, food), x + dp(154), y + dp(13), text);
-    }
-
-    private void drawArmor(@NonNull Canvas canvas, float x, float y, int armor) {
-        if (armor < 0) armor = 0;
-        float value = Math.max(0, armor) / 2f;
-        if (!drawHudSpritePipsAny(canvas, x, y, 10, value, 255,
-                new String[] { "armor_full", "armor/full" },
-                new String[] { "armor_half", "armor/half" },
-                new String[] { "armor_empty", "armor/container", "armor_empty" })) {
-            drawHudPips(canvas, x, y, 10, value, Color.rgb(169, 190, 213), Color.rgb(46, 56, 70), "armor");
-        }
-        text.setTextAlign(Paint.Align.LEFT);
-        text.setTextSize(sp(10));
-        text.setColor(Color.rgb(198, 211, 226));
-        canvas.drawText("Armor " + Math.max(0, armor), x + dp(154), y + dp(13), text);
-    }
-
-    private void drawAir(@NonNull Canvas canvas, float x, float y, int air, int maxAir) {
-        boolean fullAir = air < 0 || maxAir <= 0 || air >= maxAir;
-        if (fullAir) return;
-        float value = Math.max(0f, Math.min(10f, (air / (float) maxAir) * 10f));
-        boolean drewSprites = drawHudSpritePipsAny(canvas, x, y, 10, value, 255,
-                new String[] { "air_full", "air", "bubble_full", "bubble" },
-                new String[] { "air_half", "air_bursting", "bubble_half", "bubble_bursting" },
-                new String[] { "air_empty", "bubble_empty" });
-        if (!drewSprites) {
-            drawHudPips(canvas, x, y, 10, value, Color.rgb(92, 183, 235), Color.rgb(28, 55, 74), "air");
-        }
-    }
-
-    private void drawXp(@NonNull Canvas canvas, float left, float top, float right, float bottom, float progress, int level) {
-        float p = clamp01(progress);
-        xpRect.set(left, top, right, bottom);
-        drawRoundRect(canvas, xpRect, Color.rgb(31, 43, 32), Color.rgb(55, 83, 55), 5f);
-        scratch.set(left + dp(2), top + dp(2), left + dp(2) + Math.max(0f, (right - left - dp(4)) * p), bottom - dp(2));
-        fill.setStyle(Paint.Style.FILL);
-        fill.setColor(Color.rgb(93, 212, 79));
-        canvas.drawRoundRect(scratch, dp(4), dp(4), fill);
-        if (level >= 0) {
-            drawMinecraftStyleXpLevel(canvas, level, (left + right) * 0.5f, bottom - dp(1));
-        }
-    }
-
-
-    private boolean drawHudSpritePipsAny(@NonNull Canvas canvas, float x, float y, int count, float filled, int alpha,
-                                         @NonNull String[] fullNames, @NonNull String[] halfNames, @NonNull String[] emptyNames) {
-        Bitmap full = loadFirstHudAsset(fullNames);
-        Bitmap half = loadFirstHudAsset(halfNames);
-        Bitmap empty = loadFirstHudAsset(emptyNames);
-        if (full == null && empty == null) return false;
-        if (empty == null) empty = full;
-
-        float size = dp(13);
-        float gap = dp(3);
-        int limit = Math.min(10, Math.max(0, count));
-        int oldAlpha = fill.getAlpha();
-        fill.setFilterBitmap(false);
-        fill.setDither(false);
-        for (int i = 0; i < limit; i++) {
-            scratch.set(x + i * (size + gap), y, x + i * (size + gap) + size, y + size);
-            // Match the vanilla HUD layering: draw the empty/container sprite first, then
-            // overlay the full/half sprite. This gives armor and air the same real icon
-            // background behavior that hearts/hunger already use.
-            if (empty != null) {
-                fill.setAlpha(Math.max(35, Math.min(255, alpha)));
-                canvas.drawBitmap(empty, null, scratch, fill);
-            }
-            float v = filled - i;
-            Bitmap overlay = v >= 1f ? full : (v > 0f && half != null ? half : null);
-            if (overlay != null) {
-                fill.setAlpha(Math.max(0, Math.min(255, alpha)));
-                canvas.drawBitmap(overlay, null, scratch, fill);
-            }
-        }
-        fill.setAlpha(oldAlpha);
-        return true;
-    }
 
     @Nullable
     private Bitmap loadFirstHudAsset(@NonNull String[] names) {
@@ -1059,28 +867,6 @@ final class DualScreenControlsView extends View {
             if (bitmap != null && !bitmap.isRecycled()) return bitmap;
         }
         return null;
-    }
-
-    private boolean drawHudSpritePips(@NonNull Canvas canvas, float x, float y, int count, float filled,
-                                      @NonNull String fullName, @NonNull String halfName, @NonNull String emptyName) {
-        Bitmap full = loadHudAsset(fullName);
-        Bitmap half = loadHudAsset(halfName);
-        Bitmap empty = loadHudAsset(emptyName);
-        if (full == null && empty == null) return false;
-        if (empty == null) empty = full;
-        float size = dp(13);
-        float gap = dp(3);
-        int limit = Math.min(10, Math.max(0, count));
-        fill.setFilterBitmap(false);
-        fill.setDither(false);
-        for (int i = 0; i < limit; i++) {
-            float v = filled - i;
-            scratch.set(x + i * (size + gap), y, x + i * (size + gap) + size, y + size);
-            if (empty != null) canvas.drawBitmap(empty, null, scratch, fill);
-            Bitmap overlay = v >= 1f ? full : (v > 0f && half != null ? half : null);
-            if (overlay != null) canvas.drawBitmap(overlay, null, scratch, fill);
-        }
-        return true;
     }
 
     @Nullable
@@ -1335,42 +1121,6 @@ final class DualScreenControlsView extends View {
         candidates.add(file);
     }
 
-    private void drawHudPips(@NonNull Canvas canvas, float x, float y, int count, float filled, int fullColor, int emptyColor, @NonNull String type) {
-        float size = dp(13);
-        float gap = dp(3);
-        int limit = Math.min(10, Math.max(0, count));
-        for (int i = 0; i < limit; i++) {
-            float v = filled - i;
-            int color = v >= 1f ? fullColor : (v > 0f ? blend(emptyColor, fullColor, 0.55f) : emptyColor);
-            float l = x + i * (size + gap);
-            scratch.set(l, y, l + size, y + size);
-            if ("heart".equals(type)) drawHeart(canvas, scratch, color, emptyColor);
-            else if ("food".equals(type)) drawFoodPip(canvas, scratch, color, emptyColor);
-            else if ("armor".equals(type)) drawShield(canvas, scratch, color, emptyColor);
-            else drawBubble(canvas, scratch, color, emptyColor);
-        }
-    }
-
-    private void drawHeart(@NonNull Canvas canvas, @NonNull RectF r, int color, int border) {
-        shapePath.reset();
-        float cx = r.centerX();
-        float top = r.top + r.height() * 0.20f;
-        shapePath.moveTo(cx, r.bottom - r.height() * 0.12f);
-        shapePath.cubicTo(r.left - r.width() * 0.12f, r.top + r.height() * 0.55f, r.left + r.width() * 0.06f, top, cx, r.top + r.height() * 0.34f);
-        shapePath.cubicTo(r.right - r.width() * 0.06f, top, r.right + r.width() * 0.12f, r.top + r.height() * 0.55f, cx, r.bottom - r.height() * 0.12f);
-        fill.setStyle(Paint.Style.FILL); fill.setColor(color); canvas.drawPath(shapePath, fill);
-        stroke.setStyle(Paint.Style.STROKE); stroke.setStrokeWidth(dp(1)); stroke.setColor(border); canvas.drawPath(shapePath, stroke);
-    }
-
-    private void drawFoodPip(@NonNull Canvas canvas, @NonNull RectF r, int color, int border) {
-        fill.setStyle(Paint.Style.FILL); fill.setColor(color);
-        canvas.drawRoundRect(r, dp(5), dp(5), fill);
-        scratch2.set(r.left + r.width() * 0.56f, r.top - r.height() * 0.05f, r.right + r.width() * 0.15f, r.top + r.height() * 0.40f);
-        fill.setColor(Color.rgb(80, 170, 68));
-        canvas.drawOval(scratch2, fill);
-        stroke.setStyle(Paint.Style.STROKE); stroke.setStrokeWidth(dp(1)); stroke.setColor(border); canvas.drawRoundRect(r, dp(5), dp(5), stroke);
-    }
-
     private void drawShield(@NonNull Canvas canvas, @NonNull RectF r, int color, int border) {
         shapePath.reset();
         shapePath.moveTo(r.centerX(), r.top);
@@ -1382,52 +1132,6 @@ final class DualScreenControlsView extends View {
         shapePath.close();
         fill.setStyle(Paint.Style.FILL); fill.setColor(color); canvas.drawPath(shapePath, fill);
         stroke.setStyle(Paint.Style.STROKE); stroke.setStrokeWidth(dp(1)); stroke.setColor(border); canvas.drawPath(shapePath, stroke);
-    }
-
-    private void drawBubble(@NonNull Canvas canvas, @NonNull RectF r, int color, int border) {
-        fill.setStyle(Paint.Style.FILL); fill.setColor(color); canvas.drawOval(r, fill);
-        stroke.setStyle(Paint.Style.STROKE); stroke.setStrokeWidth(dp(1)); stroke.setColor(border); canvas.drawOval(r, stroke);
-    }
-
-    private int blend(int a, int b, float t) {
-        t = clamp01(t);
-        int ar = Color.red(a), ag = Color.green(a), ab = Color.blue(a);
-        int br = Color.red(b), bg = Color.green(b), bb = Color.blue(b);
-        return Color.rgb((int) (ar + (br - ar) * t), (int) (ag + (bg - ag) * t), (int) (ab + (bb - ab) * t));
-    }
-
-    private void drawDualScreenSettingsControls(@NonNull Canvas canvas) {
-        if (dualSettingsGearRect.isEmpty()) return;
-
-        drawRoundRect(canvas, dualSettingsGearRect, Color.argb(228, 20, 25, 34),
-                dualSettingsOpen ? Color.rgb(124, 190, 255) : Color.rgb(118, 126, 143), 12f);
-        text.setTextAlign(Paint.Align.CENTER);
-        text.setFakeBoldText(false);
-        text.setColor(Color.WHITE);
-        text.setTextSize(sp(22));
-        canvas.drawText("⚙", dualSettingsGearRect.centerX(), dualSettingsGearRect.centerY() + dp(7), text);
-
-        if (!dualSettingsOpen) return;
-        boolean mapEnabled = readDualScreenProperty("droidbridge_dualscreen_map.properties", "mapEnabled", false);
-        boolean coordinatesEnabled = readDualScreenProperty("droidbridge_dualscreen_coordinates.properties", "coordinatesEnabled", false);
-        drawDualScreenSettingRow(canvas, dualSettingsMapRect, "Map", mapEnabled);
-        drawDualScreenSettingRow(canvas, dualSettingsCoordsRect, "Coordinates", coordinatesEnabled);
-    }
-
-    private void drawDualScreenSettingRow(@NonNull Canvas canvas, @NonNull RectF bounds,
-                                          @NonNull String label, boolean enabled) {
-        if (bounds.isEmpty()) return;
-        int border = enabled ? Color.rgb(106, 207, 134) : Color.rgb(94, 103, 119);
-        drawRoundRect(canvas, bounds, Color.argb(238, 20, 25, 34), border, 10f);
-        text.setTextAlign(Paint.Align.LEFT);
-        text.setFakeBoldText(true);
-        text.setColor(Color.WHITE);
-        text.setTextSize(sp(12));
-        canvas.drawText(label, bounds.left + dp(12), bounds.centerY() + dp(4), text);
-        text.setTextAlign(Paint.Align.RIGHT);
-        text.setColor(enabled ? Color.rgb(123, 232, 150) : Color.rgb(184, 190, 202));
-        canvas.drawText(enabled ? "ON" : "OFF", bounds.right - dp(12), bounds.centerY() + dp(4), text);
-        text.setFakeBoldText(false);
     }
 
     private boolean readDualScreenProperty(@NonNull String fileName, @NonNull String key, boolean fallback) {
@@ -1480,24 +1184,6 @@ final class DualScreenControlsView extends View {
         File gameDir = hudStateFile.getParentFile();
         if (gameDir == null) gameDir = new File(System.getProperty("user.dir", "."));
         return new File(new File(gameDir, "config"), fileName);
-    }
-
-    private void drawButtons(@NonNull Canvas canvas) {
-        for (ButtonRegion button : buttons) {
-            boolean pressed = isActionPressed(button.action);
-            int bg = pressed ? Color.rgb(40, 62, 84) : Color.rgb(18, 25, 38);
-            int border = pressed ? Color.rgb(86, 166, 255) : Color.rgb(49, 65, 88);
-            drawRoundRect(canvas, button.bounds, bg, border, 18f);
-            text.setTextAlign(Paint.Align.CENTER);
-            text.setFakeBoldText(true);
-            text.setColor(Color.WHITE);
-            text.setTextSize(sp(14));
-            canvas.drawText(button.label, button.bounds.centerX(), button.bounds.centerY() - dp(2), text);
-            text.setFakeBoldText(false);
-            text.setColor(Color.rgb(164, 176, 195));
-            text.setTextSize(sp(10));
-            canvas.drawText(button.subLabel, button.bounds.centerX(), button.bounds.centerY() + dp(16), text);
-        }
     }
 
     @NonNull
@@ -2016,22 +1702,6 @@ final class DualScreenControlsView extends View {
             {"01110","10001","10001","01110","10001","10001","01110"},
             {"01110","10001","10001","01111","00001","00001","11110"}
     };
-
-    private void drawMinecraftStyleXpLevel(@NonNull Canvas canvas, int level, float centerX, float bottomY) {
-        String value = String.valueOf(Math.max(0, level));
-        float pixel = xpLevelPixelSize();
-        float glyphWidth = 5f * pixel;
-        float gap = pixel * 1.50f;
-        float totalWidth = value.length() * glyphWidth
-                + Math.max(0, value.length() - 1) * gap;
-        float left = centerX - totalWidth * 0.5f;
-        float top = bottomY - 7f * pixel;
-
-        drawXpPixelDigits(canvas, value, left + pixel, top + pixel, pixel,
-                Color.rgb(28, 64, 8));
-        drawXpPixelDigits(canvas, value, left, top, pixel,
-                Color.rgb(128, 255, 32));
-    }
 
     private void drawMinecraftStyleXpLevelCentered(@NonNull Canvas canvas, int level,
                                                    float centerX, float centerY) {
@@ -2710,89 +2380,6 @@ final class DualScreenControlsView extends View {
         );
     }
 
-    private void drawStrongHotbarSelectionOverlay(@NonNull Canvas canvas, @NonNull RectF slot, boolean activeTouch) {
-        float grow = Math.max(dp(activeTouch ? 1.2f : 1.0f), slot.width() * (activeTouch ? 0.030f : 0.020f));
-        scratch.set(slot.left - grow, slot.top - grow, slot.right + grow, slot.bottom + grow);
-        // 1.0.108: outline only.  The previous translucent fill was drawn over the
-        // item after touch/controller selection, which made the icon flash dark/light.
-        stroke.setStyle(Paint.Style.STROKE);
-        stroke.setStrokeWidth(Math.max(dp(activeTouch ? 2.0f : 1.6f), slot.width() * 0.030f));
-        stroke.setColor(activeTouch ? Color.rgb(255, 246, 190) : Color.rgb(245, 245, 245));
-        canvas.drawRoundRect(scratch, dp(5), dp(5), stroke);
-        // Single outline only; vanilla hotbar_selection already provides the normal selected border.
-    }
-
-    private void drawHotbarSlotTouchFeedback(@NonNull Canvas canvas, @NonNull RectF slot, @NonNull HudItem item) {
-        float grow = Math.max(dp(2), slot.width() * 0.09f);
-        scratch.set(slot.left - grow, slot.top - grow, slot.right + grow, slot.bottom + grow);
-        // 1.0.108: no alpha fill over the item.  The border still shows the user
-        // exactly what slot is being touched without dimming the item bitmap.
-        stroke.setStyle(Paint.Style.STROKE);
-        stroke.setStrokeWidth(Math.max(dp(2.4f), slot.width() * 0.048f));
-        stroke.setColor(Color.rgb(255, 246, 190));
-        canvas.drawRoundRect(scratch, dp(5), dp(5), stroke);
-    }
-
-    private void drawHotbarTouchTooltip(@NonNull Canvas canvas, int slot, @NonNull HudItem item) {
-        String label = item.displayLabel();
-        if (label == null || label.trim().isEmpty()) label = "Slot " + (slot + 1);
-        else label = (slot + 1) + ": " + label;
-        text.setTextSize(sp(9));
-        text.setFakeBoldText(true);
-        text.setTextAlign(Paint.Align.CENTER);
-        float maxWidth = Math.max(dp(80), hotbarOuter.width() * 0.48f);
-        label = fitText(label, maxWidth, text);
-        float tw = text.measureText(label);
-        RectF source = hotbarSlots[Math.max(0, Math.min(SLOT_COUNT - 1, slot))];
-        float cx = source.centerX();
-        float w = Math.min(maxWidth + dp(16), tw + dp(18));
-        float h = dp(20);
-        float left = Math.max(dp(8), Math.min(getWidth() - dp(8) - w, cx - w * 0.5f));
-        float top = hotbarOuter.top - h - dp(8);
-        scratch.set(left, top, left + w, top + h);
-        fill.setStyle(Paint.Style.FILL);
-        fill.setColor(Color.argb(210, 10, 12, 18));
-        canvas.drawRoundRect(scratch, dp(8), dp(8), fill);
-        stroke.setStyle(Paint.Style.STROKE);
-        stroke.setStrokeWidth(dp(1));
-        stroke.setColor(Color.argb(150, 255, 246, 190));
-        canvas.drawRoundRect(scratch, dp(8), dp(8), stroke);
-        text.setColor(Color.WHITE);
-        canvas.drawText(label, scratch.centerX(), scratch.centerY() + dp(3.5f), text);
-        text.setFakeBoldText(false);
-    }
-
-    private void drawBitmapVisibleCropped(@NonNull Canvas canvas, @NonNull Bitmap bitmap, @NonNull RectF dst) {
-        if (bitmap.isRecycled() || bitmap.getWidth() <= 0 || bitmap.getHeight() <= 0) return;
-        int w = bitmap.getWidth();
-        int h = bitmap.getHeight();
-        int minX = w, minY = h, maxX = -1, maxY = -1;
-        for (int y = 0; y < h; y++) {
-            for (int x = 0; x < w; x++) {
-                if (Color.alpha(bitmap.getPixel(x, y)) > 8) {
-                    if (x < minX) minX = x;
-                    if (y < minY) minY = y;
-                    if (x > maxX) maxX = x;
-                    if (y > maxY) maxY = y;
-                }
-            }
-        }
-        fill.setFilterBitmap(false);
-        fill.setDither(false);
-        if (maxX < minX || maxY < minY) {
-            canvas.drawBitmap(bitmap, null, dst, fill);
-            return;
-        }
-        Rect src = new Rect(Math.max(0, minX - 1), Math.max(0, minY - 1), Math.min(w, maxX + 2), Math.min(h, maxY + 2));
-        // 1.0.115: draw cached TESR icons slightly inside the requested icon rect.
-        // Cropping transparent pixels is still useful, but mapping the cropped source
-        // to the full slot made beds/chests/shulkers look larger than vanilla.
-        RectF finalDst = new RectF(dst);
-        float extraPad = Math.max(dp(0.75f), Math.min(dst.width(), dst.height()) * 0.045f);
-        finalDst.inset(extraPad, extraPad);
-        canvas.drawBitmap(bitmap, src, finalDst, fill);
-    }
-
     private void drawItemGlyph(@NonNull Canvas canvas, @NonNull RectF icon, @NonNull HudItem item, boolean selected, boolean drawBackplate) {
         if (item.isEmpty()) {
             if (drawBackplate) {
@@ -3079,29 +2666,6 @@ final class DualScreenControlsView extends View {
         if (clean.endsWith("_")) clean = clean.substring(0, clean.length() - 1);
         if (clean.isEmpty() || key.toLowerCase(Locale.ROOT).contains(clean)) return key;
         return key + "|" + clean;
-    }
-
-    private boolean shouldPreferAndroidSpecialRenderer(@NonNull String key) {
-        String value = key == null ? "" : key.toLowerCase(Locale.ROOT);
-
-        // 1.0.148: every item family that can be represented by a Minecraft 26.x
-        // assets/minecraft/items/*.json definition, JSON model, or generated Android
-        // special model must bypass the old rendered_icons PNG cache.  The previous
-        // method only returned true for beds/template blocks, which is why beds changed
-        // but chests, chest boats, stonecutter, pots, shulkers, and banners kept drawing
-        // stale cached images.
-        return isMinecraftSpecialRendererItem(value)
-                || isChestBoatItem(value)
-                || isChestMinecartItem(value)
-                || isJsonBlockModelItem(value)
-                || isWallItem(value)
-                || isFenceItem(value)
-                || isButtonItem(value)
-                || isTrapdoorItem(value)
-                || value.contains("stairs")
-                || isSculkLikeBlockItem(value)
-                || isBedItem(value)
-                || isFlowerPotItem(value);
     }
 
     private boolean drawCachedItemIcon(@NonNull Canvas canvas, @NonNull RectF dst,
@@ -3895,19 +3459,6 @@ final class DualScreenControlsView extends View {
     }
 
 
-    private boolean drawExportedVanillaItemIcon(@NonNull Canvas canvas, @NonNull RectF dst, @NonNull String key) {
-        ArrayList<String> names = exportedVanillaItemIconNames(key);
-        if (names.isEmpty()) return false;
-        for (String name : names) {
-            Bitmap icon = loadSpecialTexture(name);
-            if (icon == null || icon.isRecycled()) continue;
-            if (!looksLikeFinalMinecraftItemIcon(icon)) continue;
-            drawBitmapCenteredPixelPerfect(canvas, icon, dst);
-            return true;
-        }
-        return false;
-    }
-
     @NonNull
     private ArrayList<String> exportedVanillaItemIconNames(@NonNull String key) {
         ArrayList<String> names = new ArrayList<>();
@@ -4351,10 +3902,6 @@ final class DualScreenControlsView extends View {
 
     private boolean isDecoratedPotLikeItem(@NonNull String key) {
         return key.contains("decorated_pot") || key.contains("flower_pot") || key.contains("pottery_sherd");
-    }
-
-    private boolean isFlowerPotItem(@NonNull String key) {
-        return key.contains("flower_pot");
     }
 
     private boolean drawDecoratedPotLikeIcon(@NonNull Canvas canvas, @NonNull RectF r,
@@ -5127,42 +4674,6 @@ final class DualScreenControlsView extends View {
         return true;
     }
 
-    private boolean drawShulkerBoxFromEntitySheet(@NonNull Canvas canvas, @NonNull RectF r,
-                                                  @NonNull String key, @NonNull Bitmap sheet) {
-        int fallback = shulkerColorForKey(key);
-        Bitmap topTex = solidifyTransparentTexture(cropSpecialTexture(sheet, 0f / 64f, 0f / 64f, 32f / 64f, 16f / 64f), lighten(fallback, 1.14f));
-        Bitmap sideTex = solidifyTransparentTexture(cropSpecialTexture(sheet, 0f / 64f, 16f / 64f, 32f / 64f, 32f / 64f), lighten(fallback, 0.88f));
-        Bitmap frontTex = solidifyTransparentTexture(cropSpecialTexture(sheet, 32f / 64f, 16f / 64f, 64f / 64f, 32f / 64f), lighten(fallback, 0.72f));
-        if (topTex == null) topTex = solidifyTransparentTexture(sheet, lighten(fallback, 1.10f));
-        if (sideTex == null) sideTex = topTex;
-        if (frontTex == null) frontTex = sideTex;
-
-        float cx = r.centerX();
-        float topY = r.top + r.height() * 0.18f;
-        float midY = r.top + r.height() * 0.42f;
-        float bottomY = r.bottom - r.height() * 0.13f;
-        float halfW = r.width() * 0.33f;
-        float depth = r.height() * 0.17f;
-
-        float[] topQuad = { cx, topY, cx + halfW, midY, cx, midY + depth, cx - halfW, midY };
-        float[] leftQuad = { cx - halfW, midY, cx, midY + depth, cx, bottomY, cx - halfW, bottomY - depth };
-        float[] rightQuad = { cx, midY + depth, cx + halfW, midY, cx + halfW, bottomY - depth, cx, bottomY };
-
-        drawTexturedQuad(canvas, topTex, topQuad, 1.08f);
-        drawTexturedQuad(canvas, frontTex, leftQuad, 0.76f);
-        drawTexturedQuad(canvas, sideTex, rightQuad, 0.92f);
-
-        stroke.setStyle(Paint.Style.STROKE);
-        stroke.setStrokeWidth(Math.max(dp(0.75f), r.width() * 0.016f));
-        stroke.setColor(Color.argb(140, 0, 0, 0));
-        canvas.drawLine(cx - halfW * 0.82f, midY + depth * 0.42f,
-                cx + halfW * 0.82f, midY + depth * 0.42f, stroke);
-        drawQuadStroke(canvas, topQuad, true);
-        drawQuadStroke(canvas, leftQuad, true);
-        drawQuadStroke(canvas, rightQuad, true);
-        return true;
-    }
-
     private boolean drawDripleafLikeIcon(@NonNull Canvas canvas, @NonNull RectF r,
                                          @NonNull String key, @Nullable ModelDefinition model,
                                          @Nullable Bitmap flatIcon) {
@@ -5805,12 +5316,6 @@ final class DualScreenControlsView extends View {
         return resolved;
     }
 
-    private boolean isFrontFacingFace(@NonNull String faceName, @NonNull GuiTransform guiTransform) {
-        float[] n = faceNormal(faceName);
-        if (n == null) return false;
-        return transformedNormalDepth(n[0], n[1], n[2], guiTransform) > 0.001f;
-    }
-
     @Nullable
     private float[] faceNormal(@NonNull String faceName) {
         if ("up".equals(faceName)) return new float[] {0f, 1f, 0f};
@@ -5820,26 +5325,6 @@ final class DualScreenControlsView extends View {
         if ("west".equals(faceName)) return new float[] {-1f, 0f, 0f};
         if ("east".equals(faceName)) return new float[] {1f, 0f, 0f};
         return null;
-    }
-
-    private float transformedNormalDepth(float x, float y, float z, @NonNull GuiTransform guiTransform) {
-        final double rx = Math.toRadians(guiTransform.rotX);
-        final double ry = Math.toRadians(guiTransform.rotY);
-        final double rz = Math.toRadians(guiTransform.rotZ);
-        final float cosY = (float) Math.cos(ry);
-        final float sinY = (float) Math.sin(ry);
-        final float cosX = (float) Math.cos(rx);
-        final float sinX = (float) Math.sin(rx);
-        final float cosZ = (float) Math.cos(rz);
-        final float sinZ = (float) Math.sin(rz);
-
-        float x1 = (x * guiTransform.scaleX * cosY) + (z * guiTransform.scaleZ * sinY);
-        float z1 = (-x * guiTransform.scaleX * sinY) + (z * guiTransform.scaleZ * cosY);
-        float y1 = (y * guiTransform.scaleY * cosX) - (z1 * sinX);
-        float z2 = (y * guiTransform.scaleY * sinX) + (z1 * cosX);
-        float ignoredX = (x1 * cosZ) - (y1 * sinZ);
-        if (ignoredX == Float.MIN_VALUE) return z2;
-        return z2;
     }
 
     @Nullable
@@ -6632,26 +6117,6 @@ final class DualScreenControlsView extends View {
         }
     }
 
-    private boolean drawSpritePips(@NonNull Canvas canvas, float x, float y, int count, float filled, @NonNull String type) {
-        Bitmap full = loadHudSprite(type + "_full");
-        Bitmap half = loadHudSprite(type + "_half");
-        Bitmap empty = loadHudSprite(type + "_empty");
-        if (full == null && empty == null) return false;
-        float size = dp(13);
-        float gap = dp(3);
-        int limit = Math.min(10, Math.max(0, count));
-        fill.setFilterBitmap(false);
-        fill.setDither(false);
-        for (int i = 0; i < limit; i++) {
-            float l = x + i * (size + gap);
-            scratch.set(l, y, l + size, y + size);
-            Bitmap base = filled - i >= 1f ? full : (filled - i > 0f && half != null ? half : empty);
-            if (base == null) base = full != null ? full : empty;
-            if (base != null) canvas.drawBitmap(base, null, scratch, fill);
-        }
-        return true;
-    }
-
     @Nullable
     private Bitmap loadHudSprite(@NonNull String name) {
         String clean = name.endsWith(".png") ? name : name + ".png";
@@ -6795,49 +6260,6 @@ final class DualScreenControlsView extends View {
             if (path.equals(existing.getAbsolutePath())) return;
         }
         candidates.add(file);
-    }
-
-    private void drawCuboidModelIcon(@NonNull Canvas canvas, @NonNull RectF r, @Nullable Bitmap side, @Nullable Bitmap top, float heightScale) {
-        if (side == null && top == null) return;
-        if (side == null) side = top;
-        if (top == null) top = side;
-        float cx = r.centerX();
-        float topY = r.top + r.height() * (heightScale >= 0.95f ? 0.06f : 0.28f);
-        float midY = r.top + r.height() * (heightScale >= 0.95f ? 0.34f : 0.46f);
-        float bottomY = r.top + r.height() * 0.84f;
-        float halfW = r.width() * 0.36f;
-        float depth = r.height() * 0.18f;
-        float[] topQuad = { cx, topY, cx + halfW, midY, cx, midY + depth, cx - halfW, midY };
-        float[] leftQuad = { cx - halfW, midY, cx, midY + depth, cx, bottomY, cx - halfW, bottomY - depth };
-        float[] rightQuad = { cx, midY + depth, cx + halfW, midY, cx + halfW, bottomY - depth, cx, bottomY };
-        drawTexturedQuad(canvas, top, topQuad, 1.12f);
-        drawTexturedQuad(canvas, side, leftQuad, 0.72f);
-        drawTexturedQuad(canvas, side, rightQuad, 0.88f);
-        drawQuadStroke(canvas, topQuad);
-        drawQuadStroke(canvas, leftQuad);
-        drawQuadStroke(canvas, rightQuad);
-    }
-
-    private void drawStairsModelIcon(@NonNull Canvas canvas, @NonNull RectF r, @Nullable Bitmap side, @Nullable Bitmap top) {
-        if (side == null && top == null) return;
-        if (side == null) side = top;
-        if (top == null) top = side;
-        RectF bottom = new RectF(r.left, r.top + r.height() * 0.22f, r.right, r.bottom);
-        RectF upper = new RectF(r.left + r.width() * 0.18f, r.top + r.height() * 0.04f, r.right - r.width() * 0.10f, r.top + r.height() * 0.63f);
-        drawCuboidModelIcon(canvas, bottom, side, top, 0.52f);
-        drawCuboidModelIcon(canvas, upper, side, top, 0.52f);
-    }
-
-    private void drawThinPanelModelIcon(@NonNull Canvas canvas, @NonNull RectF r, @Nullable Bitmap texture) {
-        if (texture == null) return;
-        float insetX = r.width() * 0.18f;
-        float insetY = r.height() * 0.06f;
-        float skew = r.width() * 0.10f;
-        float[] front = { r.left + insetX, r.top + insetY, r.right - insetX, r.top + insetY, r.right - insetX - skew, r.bottom - insetY, r.left + insetX - skew, r.bottom - insetY };
-        float[] side = { r.right - insetX, r.top + insetY, r.right - insetX + skew * 0.45f, r.top + insetY + skew * 0.30f, r.right - insetX - skew + skew * 0.45f, r.bottom - insetY + skew * 0.30f, r.right - insetX - skew, r.bottom - insetY };
-        drawTexturedQuad(canvas, texture, side, 0.62f);
-        drawTexturedQuad(canvas, texture, front, 1f);
-        drawQuadStroke(canvas, front);
     }
 
     private void drawTexturedQuad(@NonNull Canvas canvas, @Nullable Bitmap bitmap, @NonNull float[] verts, float brightness) {
@@ -7008,14 +6430,6 @@ final class DualScreenControlsView extends View {
     private void keepMinecraftInputReady() {
         CallbackBridge.setInputReady(true);
         CallbackBridge.ensureInputFocus();
-    }
-
-    private boolean isActionPressed(@NonNull String action) {
-        for (int i = 0; i < activeTouches.size(); i++) {
-            ActiveTouch touch = activeTouches.valueAt(i);
-            if (action.equals(touch.action)) return true;
-        }
-        return false;
     }
 
     private void drawRoundRect(@NonNull Canvas canvas, @NonNull RectF bounds, int fillColor, int strokeColor, float radiusDp) {

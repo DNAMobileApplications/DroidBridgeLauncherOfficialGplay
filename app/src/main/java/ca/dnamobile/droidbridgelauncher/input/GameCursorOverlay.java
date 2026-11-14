@@ -40,7 +40,6 @@ import ca.dnamobile.droidbridgelauncher.settings.GameResolutionSettings;
 import ca.dnamobile.droidbridgelauncher.settings.LauncherPreferences;
 import ca.dnamobile.droidbridgelauncher.runtime.DroidBridgeSDL3Bootstrap;
 import ca.dnamobile.droidbridgelauncher.runtime.MinecraftGLSurface;
-import ca.dnamobile.droidbridgelauncher.runtime.LwjglGlfwKeycode;
 
 import org.lwjgl.glfw.CallbackBridge;
 public final class GameCursorOverlay extends View {
@@ -748,17 +747,6 @@ public final class GameCursorOverlay extends View {
                 || name.contains("uinput")
                 || name.contains("gpio")
                 || name.contains("keypad");
-    }
-
-    private static boolean looksLikeMouseName(@NonNull String name) {
-        return name.contains("mouse")
-                || name.contains("trackball")
-                || name.contains("trackpad")
-                || name.contains("receiver")
-                || name.contains("logitech")
-                || name.contains("razer")
-                || name.contains("microsoft")
-                || name.contains("hid-compliant");
     }
 
     @NonNull

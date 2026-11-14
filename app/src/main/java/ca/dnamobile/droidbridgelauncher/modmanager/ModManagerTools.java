@@ -18,11 +18,7 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
-
 import ca.dnamobile.droidbridgelauncher.ui.LauncherDialogStyle;
-
-import ca.dnamobile.droidbridgelauncher.BuildConfig;
 import ca.dnamobile.droidbridgelauncher.R;
 import ca.dnamobile.droidbridgelauncher.data.AccountStore;
 import ca.dnamobile.droidbridgelauncher.security.LauncherSecurity;
@@ -111,9 +107,5 @@ public final class ModManagerTools {
 
     private static boolean isMicrosoftAccount(@Nullable AccountStore.Account account) {
         return LauncherSecurity.hasValidMicrosoftSession(account);
-    }
-
-    private static boolean isBlank(@Nullable String value) {
-        return value == null || value.trim().isEmpty();
     }
 }

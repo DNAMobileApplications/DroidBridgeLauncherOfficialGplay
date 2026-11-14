@@ -12,21 +12,29 @@
 
 package ca.dnamobile.droidbridgelauncher.update;
 
+import android.app.Activity;
 import android.content.Context;
+import android.content.pm.InstallSourceInfo;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
+import com.google.android.play.core.appupdate.AppUpdateInfo;
+import com.google.android.play.core.appupdate.AppUpdateManager;
+import com.google.android.play.core.appupdate.AppUpdateManagerFactory;
+import com.google.android.play.core.appupdate.AppUpdateOptions;
+import com.google.android.play.core.install.model.AppUpdateType;
+import com.google.android.play.core.install.model.UpdateAvailability;
+
 import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.lang.reflect.Proxy;
 import java.net.HttpURLConnection;
-import java.net.URLEncoder;
 import java.net.URL;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -41,28 +49,44 @@ import ca.dnamobile.droidbridgelauncher.BuildConfig;
 /**
  * Google Play update checker.
  *
- * <p>DroidBridge first asks the official Google Play in-app update API when Play Core is
- * present in the final application. The call is performed through reflection so this source
- * remains compatible with builds that do not bundle Play Core. If Play Core is unavailable,
- * the checker falls back to the public Google Play listing and compares the published version
- * name. No direct APK download endpoint is used.</p>
+ * <p>For a copy installed from Google Play, DroidBridge asks the Play Store itself through
+ * Google Play's in-app update API ({@code com.google.android.play:app-update}): it answers
+ * for this device and this account, and the update can run inside the app
+ * ({@link #startPlayUpdate}). It used to be called through reflection with no dependency
+ * declared, so the classes were never in the app and every check fell through to reading the
+ * Play web page, which no longer shows the version: the check failed.</p>
+ *
+ * <p>A copy from anywhere else (a debug build, a sideloaded APK) can't be checked by the
+ * Play Store. For those the public Play listing of the release package is read as a best
+ * effort, and when it shows no version the player is told to look on Google Play.</p>
  */
 public final class LauncherUpdateChecker {
     private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor();
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final Pattern NUMBER_PATTERN = Pattern.compile("(\\d+)");
+    private static final String PLAY_STORE_PACKAGE = "com.android.vending";
+
+    /** Suffixes of the builds that aren't on Google Play (build.gradle's applicationIdSuffix). */
+    private static final String[] NON_PLAY_SUFFIXES = new String[]{".debug", ".obfdebug"};
 
     private static final Pattern[] PLAY_VERSION_PATTERNS = new Pattern[]{
             Pattern.compile("itemprop=[\\\"']softwareVersion[\\\"'][^>]*content=[\\\"']([^\\\"']+)[\\\"']", Pattern.CASE_INSENSITIVE),
             Pattern.compile("content=[\\\"']([^\\\"']+)[\\\"'][^>]*itemprop=[\\\"']softwareVersion[\\\"']", Pattern.CASE_INSENSITIVE),
             Pattern.compile("\\\"softwareVersion\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"", Pattern.CASE_INSENSITIVE),
-            Pattern.compile("\\\\\\\"softwareVersion\\\\\\\"\\s*:\\s*\\\\\\\"([^\\\\\\\"]+)\\\\\\\"", Pattern.CASE_INSENSITIVE)
+            Pattern.compile("\\\\\\\"softwareVersion\\\\\\\"\\s*:\\s*\\\\\\\"([^\\\\\\\"]+)\\\\\\\"", Pattern.CASE_INSENSITIVE),
+            // The page's embedded data today: the version as [[["0.11.11"]], ... Only a
+            // version with three or more parts is taken, so "8.0" (the Android it needs)
+            // can't pass for it.
+            Pattern.compile("\\[\\[\\[\\\"(\\d+\\.\\d+\\.\\d+(?:\\.\\d+)?)\\\"\\]\\]")
     };
 
     private static final Pattern[] PLAY_VERSION_CODE_PATTERNS = new Pattern[]{
             Pattern.compile("\\\"versionCode\\\"\\s*:\\s*\\\"?(\\d+)\\\"?", Pattern.CASE_INSENSITIVE),
             Pattern.compile("\\\\\\\"versionCode\\\\\\\"\\s*:\\s*\\\\\\\"?(\\d+)\\\\\\\"?", Pattern.CASE_INSENSITIVE)
     };
+
+    @Nullable
+    private static AppUpdateManager playManager;
 
     private LauncherUpdateChecker() {
     }
@@ -79,124 +103,119 @@ public final class LauncherUpdateChecker {
         Context appContext = context.getApplicationContext();
         AtomicBoolean delivered = new AtomicBoolean(false);
 
-        if (tryCheckWithPlayCore(appContext, callback, delivered)) {
-            return;
+        if (isInstalledFromPlay(appContext)) {
+            checkWithPlay(appContext, callback, delivered);
+        } else {
+            checkPlayListingAsync(appContext, callback, delivered);
         }
-
-        checkPlayListingAsync(appContext, callback, delivered);
     }
 
-    /**
-     * Uses the official Play update API when its classes are available in the app build.
-     * No compile-time Play Core dependency is required by this source file.
-     */
-    private static boolean tryCheckWithPlayCore(
+    @NonNull
+    private static synchronized AppUpdateManager manager(@NonNull Context context) {
+        if (playManager == null) {
+            playManager = AppUpdateManagerFactory.create(context.getApplicationContext());
+        }
+        return playManager;
+    }
+
+    /** Asks the Play Store (main thread callbacks). */
+    private static void checkWithPlay(
             @NonNull Context context,
             @NonNull Callback callback,
             @NonNull AtomicBoolean delivered
     ) {
         try {
-            Class<?> factoryClass = Class.forName("com.google.android.play.core.appupdate.AppUpdateManagerFactory");
-            Method createMethod = factoryClass.getMethod("create", Context.class);
-            Object manager = createMethod.invoke(null, context);
-            if (manager == null) return false;
-
-            Class<?> managerClass = Class.forName("com.google.android.play.core.appupdate.AppUpdateManager");
-            Method getInfoMethod = managerClass.getMethod("getAppUpdateInfo");
-            Object task = getInfoMethod.invoke(manager);
-            if (task == null) return false;
-
-            Class<?> listenerClass = Class.forName("com.google.android.gms.tasks.OnCompleteListener");
-            Object listener = Proxy.newProxyInstance(
-                    listenerClass.getClassLoader(),
-                    new Class<?>[]{listenerClass},
-                    (proxy, method, args) -> {
-                        if (!"onComplete".equals(method.getName()) || args == null || args.length == 0) {
-                            return null;
-                        }
-
-                        Object completedTask = args[0];
-                        try {
-                            Class<?> taskClass = Class.forName("com.google.android.gms.tasks.Task");
-                            boolean successful = (Boolean) taskClass
-                                    .getMethod("isSuccessful")
-                                    .invoke(completedTask);
-                            if (!successful) {
-                                checkPlayListingAsync(context, callback, delivered);
-                                return null;
-                            }
-
-                            Object appUpdateInfo = taskClass
-                                    .getMethod("getResult")
-                                    .invoke(completedTask);
-                            if (appUpdateInfo == null) {
-                                checkPlayListingAsync(context, callback, delivered);
-                                return null;
-                            }
-
-                            Class<?> appUpdateInfoClass = Class.forName("com.google.android.play.core.appupdate.AppUpdateInfo");
-                            int availability = ((Number) appUpdateInfoClass
-                                    .getMethod("updateAvailability")
-                                    .invoke(appUpdateInfo)).intValue();
-                            long availableVersionCode = readAvailableVersionCode(appUpdateInfo);
-
-                            int updateNotAvailable = readPlayConstant("UPDATE_NOT_AVAILABLE", 1);
-                            int updateAvailable = readPlayConstant("UPDATE_AVAILABLE", 2);
-                            int updateInProgress = readPlayConstant("DEVELOPER_TRIGGERED_UPDATE_IN_PROGRESS", 3);
-
-                            if (availability != updateNotAvailable
-                                    && availability != updateAvailable
-                                    && availability != updateInProgress) {
-                                // UNKNOWN can happen for sideloaded/debug installs. The public Play
-                                // listing is still useful in that case, so do not report a false
-                                // "up to date" result.
-                                checkPlayListingAsync(context, callback, delivered);
-                                return null;
-                            }
-
-                            boolean hasUpdate = availability == updateAvailable || availability == updateInProgress;
-                            LauncherUpdateInfo info = new LauncherUpdateInfo(
+            manager(context).getAppUpdateInfo()
+                    .addOnSuccessListener(info -> {
+                        int availability = info.updateAvailability();
+                        if (availability == UpdateAvailability.UPDATE_AVAILABLE
+                                || availability == UpdateAvailability.DEVELOPER_TRIGGERED_UPDATE_IN_PROGRESS) {
+                            deliverResult(callback, new LauncherUpdateInfo(
                                     "",
-                                    availableVersionCode,
+                                    info.availableVersionCode(),
                                     getPlayStoreWebUrl(context),
-                                    hasUpdate,
+                                    true,
+                                    true,
+                                    info
+                            ), delivered);
+                        } else if (availability == UpdateAvailability.UPDATE_NOT_AVAILABLE) {
+                            deliverResult(callback, new LauncherUpdateInfo(
+                                    BuildConfig.VERSION_NAME,
+                                    BuildConfig.VERSION_CODE,
+                                    getPlayStoreWebUrl(context),
+                                    false,
                                     true
-                            );
-                            deliverResult(callback, info, delivered);
-                        } catch (Throwable ignored) {
+                            ), delivered);
+                        } else {
+                            // UNKNOWN: the Play Store couldn't tell; the listing may.
                             checkPlayListingAsync(context, callback, delivered);
                         }
-                        return null;
-                    }
-            );
+                    })
+                    .addOnFailureListener(error ->
+                            // Not signed in to Play, Play Store too old, no network...
+                            checkPlayListingAsync(context, callback, delivered));
+        } catch (Throwable error) {
+            checkPlayListingAsync(context, callback, delivered);
+        }
+    }
 
-            Class<?> taskClass = Class.forName("com.google.android.gms.tasks.Task");
-            Method addOnComplete = taskClass.getMethod("addOnCompleteListener", listenerClass);
-            addOnComplete.invoke(task, listener);
+    /**
+     * Starts Google Play's own update screen for an update the Play Store reported, from
+     * {@code activity}. False when that can't be done (not from the Play Store, or Play won't
+     * run it): open the Play listing instead.
+     */
+    public static boolean startPlayUpdate(@NonNull Activity activity, @NonNull LauncherUpdateInfo info) {
+        AppUpdateInfo playInfo = info.playUpdateInfo;
+        if (playInfo == null || !playInfo.isUpdateTypeAllowed(AppUpdateType.IMMEDIATE)) {
+            return false;
+        }
+        try {
+            manager(activity).startUpdateFlow(
+                    playInfo,
+                    activity,
+                    AppUpdateOptions.defaultOptions(AppUpdateType.IMMEDIATE)
+            );
             return true;
+        } catch (Throwable error) {
+            return false;
+        }
+    }
+
+    /** Whether the Play Store installed this copy (only those can be checked by it). */
+    public static boolean isInstalledFromPlay(@NonNull Context context) {
+        if (isNonPlayPackage(context.getPackageName())) return false;
+        try {
+            PackageManager pm = context.getPackageManager();
+            String installer;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                InstallSourceInfo source = pm.getInstallSourceInfo(context.getPackageName());
+                installer = source.getInstallingPackageName();
+            } else {
+                installer = pm.getInstallerPackageName(context.getPackageName());
+            }
+            return PLAY_STORE_PACKAGE.equals(installer);
         } catch (Throwable ignored) {
             return false;
         }
     }
 
-    private static long readAvailableVersionCode(@NonNull Object appUpdateInfo) {
-        try {
-            Class<?> appUpdateInfoClass = Class.forName("com.google.android.play.core.appupdate.AppUpdateInfo");
-            Object result = appUpdateInfoClass.getMethod("availableVersionCode").invoke(appUpdateInfo);
-            return result instanceof Number ? ((Number) result).longValue() : -1L;
-        } catch (Throwable ignored) {
-            return -1L;
+    private static boolean isNonPlayPackage(@NonNull String packageName) {
+        for (String suffix : NON_PLAY_SUFFIXES) {
+            if (packageName.endsWith(suffix)) return true;
         }
+        return false;
     }
 
-    private static int readPlayConstant(@NonNull String name, int fallback) {
-        try {
-            Class<?> availabilityClass = Class.forName("com.google.android.play.core.install.model.UpdateAvailability");
-            Field field = availabilityClass.getField(name);
-            return field.getInt(null);
-        } catch (Throwable ignored) {
-            return fallback;
+    /** The package on Google Play: this one without a debug build's suffix. */
+    @NonNull
+    private static String playPackageName(@NonNull Context context) {
+        String packageName = context.getPackageName();
+        for (String suffix : NON_PLAY_SUFFIXES) {
+            if (packageName.endsWith(suffix)) {
+                return packageName.substring(0, packageName.length() - suffix.length());
+            }
         }
+        return packageName;
     }
 
     private static void checkPlayListingAsync(
@@ -221,14 +240,17 @@ public final class LauncherUpdateChecker {
         String remoteVersion = extractPublishedVersion(html);
         long remoteVersionCode = extractPublishedVersionCode(html);
         if (remoteVersion.isEmpty() && remoteVersionCode <= 0L) {
-            throw new IllegalStateException(
-                    "Google Play did not expose the published version for this check. "
-                            + "You can still open DroidBridge on Google Play and update from there."
-            );
+            throw new IllegalStateException(isInstalledFromPlay(context)
+                    ? "Google Play didn't answer the update check. Open DroidBridge on Google Play "
+                    + "to see if there's an update."
+                    : "This copy of DroidBridge wasn't installed from Google Play, so Google Play "
+                    + "can't check it for updates. Open DroidBridge on Google Play to see the "
+                    + "latest version.");
         }
 
+        String currentVersion = currentVersionName();
         boolean updateAvailable = !remoteVersion.isEmpty()
-                ? isRemoteVersionNewer(BuildConfig.VERSION_NAME, remoteVersion)
+                ? isRemoteVersionNewer(currentVersion, remoteVersion)
                 : remoteVersionCode > BuildConfig.VERSION_CODE;
         return new LauncherUpdateInfo(
                 remoteVersion,
@@ -237,6 +259,14 @@ public final class LauncherUpdateChecker {
                 updateAvailable,
                 false
         );
+    }
+
+    /** This build's version name without a debug build's suffix ("-debug"). */
+    @NonNull
+    private static String currentVersionName() {
+        String name = BuildConfig.VERSION_NAME;
+        int dash = name.indexOf('-');
+        return dash > 0 ? name.substring(0, dash) : name;
     }
 
     @NonNull
@@ -312,24 +342,25 @@ public final class LauncherUpdateChecker {
 
     @NonNull
     public static String getPlayStoreWebUrl(@NonNull Context context) {
+        String packageName = playPackageName(context);
         try {
             return "https://play.google.com/store/apps/details?id="
-                    + URLEncoder.encode(context.getPackageName(), "UTF-8");
+                    + URLEncoder.encode(packageName, "UTF-8");
         } catch (Throwable ignored) {
-            return "https://play.google.com/store/apps/details?id=" + context.getPackageName();
+            return "https://play.google.com/store/apps/details?id=" + packageName;
         }
     }
 
     @NonNull
     public static String getPlayStoreMarketUrl(@NonNull Context context) {
-        return "market://details?id=" + context.getPackageName();
+        return "market://details?id=" + playPackageName(context);
     }
 
     @NonNull
     private static String getText(@NonNull String requestUrl) throws Exception {
         HttpURLConnection connection = null;
         try {
-            URL url = new URL(requestUrl);
+            URL url = new URL(requestUrl + "&hl=en_US&gl=US");
             connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("GET");
             connection.setConnectTimeout(10_000);
@@ -345,6 +376,10 @@ public final class LauncherUpdateChecker {
             );
 
             int code = connection.getResponseCode();
+            if (code == 404) {
+                throw new IllegalStateException(
+                        "DroidBridge's Google Play page wasn't found (it may not be published yet).");
+            }
             if (code < 200 || code >= 300) {
                 throw new IllegalStateException("Google Play update check failed. HTTP " + code);
             }

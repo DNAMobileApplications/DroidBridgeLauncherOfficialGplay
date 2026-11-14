@@ -1911,7 +1911,14 @@ EXTERNAL_API void droidbridgeSwapBuffers(void) {
             db_native_glfw_swap_buffers_fn swap_buffers =
                     (db_native_glfw_swap_buffers_fn) dlsym(handle, "droidbridge_native_glfw_swap_buffers");
             if (swap_buffers != NULL) {
+                /* Time the real Mesa swap so VSync can fall back to adaptive
+                 * pacing when the interval is accepted but does not block
+                 * (Freedreno on TextureView, including Minecraft 26.3's SDL3
+                 * presentation, which reaches this path through NativeGLFW). */
+                const int64_t swapStartNs = droidbridgeMonotonicNs();
                 swap_buffers();
+                const int64_t swapEndNs = droidbridgeMonotonicNs();
+                droidbridgeObserveGlSwap(presentEntryNs, swapStartNs, swapEndNs);
             } else {
                 const char* error = dlerror();
                 printf("DroidBridgeNativeGLFW: missing droidbridge_native_glfw_swap_buffers error=%s\n", error ? error : "unknown");
@@ -2139,11 +2146,16 @@ static bool droidbridgeVulkanModOwnsPresentation(void) {
 }
 
 static bool droidbridgeFramePacingEnvEnabled(void) {
-    /* Direct Freedreno/Mesa presents through the real EGL swap interval. Do not
-     * stack DroidBridge's fallback software pacer on top of it. This remains
-     * true even if an older launcher layer left FRAME_PACING=1 in the process
-     * environment. */
-    if (droidbridgeDirectFreedrenoPresentation()) return false;
+    /* Direct Freedreno/Mesa presents through the real EGL swap interval, so the
+     * launcher's FRAME_PACING variable is ignored here and Minecraft's live
+     * interval decides. Pacing is only *allowed* while VSync is on; it only
+     * *engages* once droidbridgeObserveGlSwap() proves eglSwapInterval(1) is not
+     * blocking. That happens on the default TextureView surface: TextureView's
+     * consumer lives in the app, so Android makes the producer's dequeue
+     * non-blocking and swaps run uncapped whatever the interval. On SurfaceView
+     * the swap really waits for vsync, the observer sees that and stays
+     * disarmed, so the two limiters never stack. */
+    if (droidbridgeDirectFreedrenoPresentation()) return g_glSwapIntervalEnabled != 0;
     const char* value = getenv("DROIDBRIDGE_VSYNC_FRAME_PACING");
     return env_enabled(value);
 }
@@ -2490,9 +2502,11 @@ static void droidbridgeApplyMinecraftVsyncLive(int enabled) {
     const int directFreedreno = droidbridgeDirectFreedrenoPresentation() ? 1 : 0;
     if (directFreedreno) {
         /* Minecraft's live GLFW interval is authoritative on direct Mesa. Do
-         * not turn the live option back into a FORCE_VSYNC clamp or arm the
-         * software pacer; either one can double-throttle the Android BufferQueue
-         * and cause black/flickering presents at native resolution/high FPS. */
+         * not turn the live option back into a FORCE_VSYNC clamp: that can
+         * double-throttle the Android BufferQueue and cause black/flickering
+         * presents. The FRAME_PACING variable is ignored on this path; the
+         * adaptive pacer engages only when the swap is proven non-blocking
+         * (see droidbridgeFramePacingEnvEnabled). */
         setenv("FORCE_VSYNC", "false", 1);
         setenv("DROIDBRIDGE_MOBILEGLUES_FORCE_VSYNC", "0", 1);
         setenv("DROIDBRIDGE_VSYNC_FRAME_PACING", "0", 1);

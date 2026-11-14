@@ -17,11 +17,13 @@ import androidx.annotation.Nullable;
  *
  * JAVA is Mojang's game running on the bundled OpenJDK: every version from 1.0 to 26.3,
  * every mod loader. HORIZON is the Rust reimplementation of vanilla 26.3: faster world
- * loading and lower memory use, but no Java mods.
+ * loading and lower memory use, but no Java mods. RUSTCRAFT is the Rust reimplementation of
+ * vanilla 1.0 (singleplayer), checked against the real 1.0 client.
  */
 public enum GameEngine {
     JAVA("java"),
-    HORIZON("horizon");
+    HORIZON("horizon"),
+    RUSTCRAFT("rustcraft");
 
     @NonNull
     public final String id;

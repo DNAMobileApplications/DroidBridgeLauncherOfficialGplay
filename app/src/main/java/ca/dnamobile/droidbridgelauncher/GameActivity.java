@@ -128,9 +128,9 @@ import ca.dnamobile.droidbridgelauncher.modcompat.ModPreLaunchWarningManager;
 import ca.dnamobile.droidbridgelauncher.renderer.DriverPluginManager;
 import ca.dnamobile.droidbridgelauncher.renderer.KopperZinkRenderer;
 import ca.dnamobile.droidbridgelauncher.renderer.DroidBridgeMesaSupport;
-import ca.dnamobile.droidbridgelauncher.renderer.BtaRendererPolicy;
 import ca.dnamobile.droidbridgelauncher.renderer.DroidBridgeNativeGlfwKgslRenderer;
 import ca.dnamobile.droidbridgelauncher.renderer.DroidBridgeRenderSpec;
+import ca.dnamobile.droidbridgelauncher.renderer.FreedrenoCompatOptions;
 import ca.dnamobile.droidbridgelauncher.renderer.MobileGluesConfigHelper;
 import ca.dnamobile.droidbridgelauncher.renderer.SimpleFpeWrapperCompat;
 import ca.dnamobile.droidbridgelauncher.renderer.RendererInterface;
@@ -142,7 +142,6 @@ import ca.dnamobile.droidbridgelauncher.recording.DualScreenRecordingSession;
 import ca.dnamobile.droidbridgelauncher.recording.RecordingPreferences;
 import ca.dnamobile.droidbridgelauncher.recording.RecordingFrameBridge;
 import ca.dnamobile.droidbridgelauncher.recording.PrimaryRecordingFramePump;
-import ca.dnamobile.droidbridgelauncher.security.InstallEntitlementVault;
 import ca.dnamobile.droidbridgelauncher.security.LauncherSecurity;
 import ca.dnamobile.droidbridgelauncher.ui.LauncherDialogStyle;
 import ca.dnamobile.droidbridgelauncher.utils.AppOrientationHelper;
@@ -155,7 +154,6 @@ import ca.dnamobile.droidbridgelauncher.runtime.DroidBridgeSDL3Bootstrap;
 
 import org.libsdl.app.SDLControllerManager;
 import org.lwjgl.glfw.CallbackBridge;
-import ca.dnamobile.droidbridgelauncher.runtime.LwjglGlfwKeycode;
 
 import org.json.JSONObject;
 
@@ -240,6 +238,7 @@ public class GameActivity extends AppCompatActivity {
     private String instanceSettingsKey = "";
     @Nullable private FlashDroidFilePickerBridge flashDroidFilePickerBridge;
     @Nullable private MusicSwapFilePickerBridge musicSwapFilePickerBridge;
+    @Nullable private GameFileImportBridge gameFileImportBridge;
     @Nullable
     private String quickPlayWorld;
     @Nullable
@@ -639,6 +638,15 @@ public class GameActivity extends AppCompatActivity {
                 activeGameDirectory
         );
         musicSwapFilePickerBridge.start();
+        // In-game "Import files into this game" (and companion mods' import requests).
+        gameFileImportBridge = new GameFileImportBridge(
+                this,
+                activeGameDirectory
+        );
+        // A game/mod "Open folder" button (Litematica's Open Directory, Open Pack Folder...)
+        // offers "Import files here" for that exact folder before browsing it.
+        gameFileImportBridge.setFolderRequestListener(this::showGameFolderRequestDialog);
+        gameFileImportBridge.start();
         registerGameRecordingStateReceiver();
         registerRecordingFrameBridgeReceiver();
         minecraftSurface = binding.minecraftSurface;
@@ -842,44 +850,6 @@ public class GameActivity extends AppCompatActivity {
                     "no selected-voice packet within 3000 ms"
             );
         }, 3000L);
-    }
-
-    private void scheduleDroidBridgeVerityLoggedPayloadFallback(
-            @NonNull String fallbackText,
-            long delayMs,
-            boolean localVoiceFailure
-    ) {
-        droidBridgeAndroidTtsHandler.postDelayed(() -> {
-            if (!droidBridgeAndroidTtsProxyRunning || isFinishing() || isDestroyed()) return;
-            long now = SystemClock.uptimeMillis();
-
-            String proxyText = droidBridgeAndroidTtsLastProxyText;
-            if (!localVoiceFailure
-                    && sameDroidBridgeNarratorText(proxyText, fallbackText)
-                    && now - droidBridgeAndroidTtsLastProxyTextUptimeMs < 2200L) {
-                return;
-            }
-
-            String previousFallback = droidBridgeAndroidTtsLastFallbackText;
-            if (sameDroidBridgeNarratorText(previousFallback, fallbackText)
-                    && now - droidBridgeAndroidTtsLastFallbackTextUptimeMs < 2200L) {
-                return;
-            }
-
-            if (localVoiceFailure) {
-                // Verity sends STOP after its failed local engine. Keep that stale
-                // packet from immediately cancelling Android's replacement speech.
-                droidBridgeVerityIgnoreStopUntilUptimeMs = now + 5000L;
-            }
-            droidBridgeAndroidTtsLastFallbackText = fallbackText;
-            droidBridgeAndroidTtsLastFallbackTextUptimeMs = now;
-            appendDroidBridgeAndroidProxyLog(
-                    "DroidBridge Verity Android TTS fallback: routing logged payload directly len="
-                            + fallbackText.length()
-                            + " localFailure=" + localVoiceFailure
-                            + " v48");
-            speakDroidBridgeAndroidNarratorText(fallbackText, true);
-        }, Math.max(0L, delayMs));
     }
 
     private long beginDroidBridgeVerityVoiceAttempt(
@@ -3513,75 +3483,6 @@ public class GameActivity extends AppCompatActivity {
     }
 
 
-    /**
-     * Verity 6 rewrote its native speech stack. On Android it may receive the
-     * launcher PCM correctly but then fail silently while loading Sherpa JNI.
-     * Give the mod time to succeed first; only use the configured Groq key if no
-     * player chat line appears after the recording stops.
-     */
-    private void scheduleDroidBridgeVerity6SpeechToTextFallback(@NonNull byte[] pcmAudio) {
-        /*
-         * Verity 6.1 speech recognition is patched inside the mod JVM so its
-         * original KeybindHandler receives the transcript and submits it through
-         * Minecraft's ClientPacketListener. Do not synthesize T/character/Enter
-         * events here: opening chat and typing in the same GLFW poll can leave an
-         * empty ChatScreen with a flashing cursor.
-         */
-    }
-
-    private void runDroidBridgeVerity6SpeechToTextFallback(
-            @NonNull byte[] pcmAudio,
-            long stoppedAt,
-            long generation
-    ) {
-        String apiKey = resolveDroidBridgeVerityGroqApiKey();
-        if (apiKey.isEmpty()) {
-            appendDroidBridgeAndroidProxyLog(
-                    "DroidBridge Verity 6 STT fallback skipped: no configured Groq key v48");
-            return;
-        }
-
-        String transcription = transcribeDroidBridgeVerityPcmWithGroq(apiKey, pcmAudio);
-        if (transcription.isEmpty()) return;
-        if (generation != droidBridgeVerityMicFallbackGeneration) return;
-        if (droidBridgeVerityLastUserChatUptimeMs > stoppedAt) {
-            appendDroidBridgeAndroidProxyLog(
-                    "DroidBridge Verity 6 STT fallback suppressed because the mod already inserted chat v48");
-            return;
-        }
-        injectDroidBridgeVerityTranscriptionIntoChat(transcription, generation);
-    }
-
-    private boolean isDroidBridgeVerity6OrNewerInstalled() {
-        Boolean cached = droidBridgeVerity6Installed;
-        if (cached != null) return cached;
-
-        boolean found = false;
-        File gameDirectory = resolveActiveGameDirectoryForRuntime();
-        File[] candidates = new File[]{
-                new File(gameDirectory, "mods"),
-                gameDirectory.getParentFile() == null
-                        ? null : new File(gameDirectory.getParentFile(), "mods")
-        };
-        for (File directory : candidates) {
-            if (directory == null) continue;
-            File[] files = directory.listFiles();
-            if (files == null) continue;
-            for (File file : files) {
-                if (file == null || !file.isFile()) continue;
-                String name = file.getName().toLowerCase(Locale.ROOT);
-                if (!name.endsWith(".jar") || !name.contains("verity")) continue;
-                if (name.substring(0, name.length() - 4).matches(".*verity[^0-9]*(?:[6-9]|[1-9][0-9])(?:[^0-9].*)?")) {
-                    found = true;
-                    break;
-                }
-            }
-            if (found) break;
-        }
-        droidBridgeVerity6Installed = found;
-        return found;
-    }
-
     @NonNull
     private String resolveDroidBridgeVerityGroqApiKey() {
         String cached = droidBridgeAndroidGroqTtsApiKey;
@@ -3741,42 +3642,6 @@ public class GameActivity extends AppCompatActivity {
         out[offset + 1] = (byte) ((value >>> 8) & 0xff);
     }
 
-    private void injectDroidBridgeVerityTranscriptionIntoChat(
-            @NonNull String transcription,
-            long generation
-    ) {
-        runOnUiThread(() -> {
-            if (generation != droidBridgeVerityMicFallbackGeneration) return;
-            if (binding == null || exiting) return;
-
-            /*
-             * Submit the complete sequence before the next GLFW event pump:
-             * open chat, insert the transcription, then press Enter. Modern
-             * Minecraft versions use DroidBridge's stack queue, so all events are
-             * processed in order during one glfwPollEvents() call and the ChatScreen
-             * never gets a rendered frame. This removes the visible open/close flash.
-             */
-            CallbackBridge.setInputReady(true);
-            CallbackBridge.ensureInputFocus();
-            boolean needsChatOpen = CallbackBridge.isGrabbing();
-            if (needsChatOpen) {
-                CallbackBridge.sendKeyPress(LwjglGlfwKeycode.GLFW_KEY_T, 0, true);
-                CallbackBridge.sendKeyPress(LwjglGlfwKeycode.GLFW_KEY_T, 0, false);
-            }
-
-            for (int i = 0; i < transcription.length(); i++) {
-                char character = transcription.charAt(i);
-                if (character == '\r' || character == '\n' || Character.isISOControl(character)) continue;
-                CallbackBridge.sendChar(character, 0);
-            }
-
-            CallbackBridge.sendKeyPress(LwjglGlfwKeycode.GLFW_KEY_ENTER, 0, true);
-            CallbackBridge.sendKeyPress(LwjglGlfwKeycode.GLFW_KEY_ENTER, 0, false);
-            appendDroidBridgeAndroidProxyLog(
-                    "DroidBridge Verity 6 STT fallback submitted transcription invisibly v54");
-        });
-    }
-
     private void stopDroidBridgeAndroidMicProxy() {
         Thread thread;
         synchronized (droidBridgeAndroidMicProxyServerLock) {
@@ -3886,6 +3751,7 @@ public class GameActivity extends AppCompatActivity {
                 }
 
                 applyEarlyFreedrenoVsyncEnvironment();
+                applyEarlyFreedrenoCompatOptions(renderer, false);
                 applyEarlyLegacyOptiFineShaderCompatibility(renderer);
                 Logging.i("GameActivity", "Early Freedreno context route="
                         + (modernLwjgl && nativeGlfwAvailable ? "NativeGLFW" : "GLBridge")
@@ -3898,6 +3764,7 @@ public class GameActivity extends AppCompatActivity {
             if (DroidBridgeMesaSupport.isMesaZinkTurnipRenderer(renderer)) {
                 applyEarlyMesaZinkTurnipEnvironment(renderer, systemVulkan);
                 applyEarlyVulkanVsyncEnvironment();
+                applyEarlyFreedrenoCompatOptions(renderer, systemVulkan);
                 applyEarlyLegacyOptiFineShaderCompatibility(renderer);
                 Logging.i("GameActivity", "Early renderer env prepared for " + renderer.getRendererName()
                         + " rendererId=vulkan_zink DROIDBRIDGE_EGL=" + DroidBridgeMesaSupport.LIB_EGL_MESA);
@@ -4776,6 +4643,19 @@ public class GameActivity extends AppCompatActivity {
             }
         }
         return null;
+    }
+
+    /** The Freedreno/Turnip switches from Settings (FreedrenoCompatOptions), before Mesa loads. */
+    private void applyEarlyFreedrenoCompatOptions(@NonNull RendererInterface renderer, boolean systemVulkan) {
+        java.util.LinkedHashMap<String, String> env = new java.util.LinkedHashMap<>();
+        env.put(FreedrenoCompatOptions.ENV_DEV_FEATURES, System.getenv(FreedrenoCompatOptions.ENV_DEV_FEATURES));
+        env.put(FreedrenoCompatOptions.ENV_FREEDRENO_DEBUG, System.getenv(FreedrenoCompatOptions.ENV_FREEDRENO_DEBUG));
+        env.put(FreedrenoCompatOptions.ENV_TURNIP_DEBUG, System.getenv(FreedrenoCompatOptions.ENV_TURNIP_DEBUG));
+        String summary = FreedrenoCompatOptions.apply(this, renderer, systemVulkan, env);
+        for (Map.Entry<String, String> entry : env.entrySet()) {
+            setEarlyEnv(entry.getKey(), entry.getValue() == null ? "" : entry.getValue());
+        }
+        Logging.i("GameActivity", summary);
     }
 
     private void applyEarlyFreedrenoVsyncEnvironment() {
@@ -6849,27 +6729,6 @@ public class GameActivity extends AppCompatActivity {
         return overlayConsumed;
     }
 
-    private static boolean isScreenPointInsideVisibleView(
-            @Nullable View view,
-            float screenX,
-            float screenY
-    ) {
-        if (view == null || view.getVisibility() != View.VISIBLE || !view.isShown()
-                || view.getWidth() <= 0 || view.getHeight() <= 0) {
-            return false;
-        }
-        int[] location = new int[2];
-        try {
-            view.getLocationOnScreen(location);
-        } catch (Throwable ignored) {
-            return false;
-        }
-        return screenX >= location[0]
-                && screenX < location[0] + view.getWidth()
-                && screenY >= location[1]
-                && screenY < location[1] + view.getHeight();
-    }
-
     @NonNull
     private File resolveDualScreenHudStateFile() {
         return new File(resolveActiveGameDirectoryForDualScreen(), "droidbridge_dual_screen_state.json");
@@ -7112,6 +6971,11 @@ public class GameActivity extends AppCompatActivity {
         }
         if (flashDroidFilePickerBridge != null
                 && flashDroidFilePickerBridge.onActivityResult(requestCode, resultCode, data)) {
+            configureWindow();
+            return;
+        }
+        if (gameFileImportBridge != null
+                && gameFileImportBridge.onActivityResult(requestCode, resultCode, data)) {
             configureWindow();
             return;
         }
@@ -7431,6 +7295,20 @@ public class GameActivity extends AppCompatActivity {
             ));
         }
 
+        if (gameFileImportBridge != null) {
+            root.addView(buildInGameDialogAction(
+                    "Import files into this game",
+                    "Add schematics, resource packs, shader packs, data packs, worlds or mods "
+                            + "straight into this game's folder ("
+                            + gameFileImportBridge.getGameDirectory().getName() + ").",
+                    false,
+                    () -> {
+                        dismissDialog(dialogRef[0]);
+                        showInGameImportFilesDialog();
+                    }
+            ));
+        }
+
         boolean recordingFinalizing = GameRecordingService.isFinalizing();
         boolean recordingActive = GameRecordingService.isRecordingOrStarting();
         boolean recordBothScreens = LauncherPreferences.isDualScreenSupportEnabled(this)
@@ -7499,6 +7377,187 @@ public class GameActivity extends AppCompatActivity {
         styleDarkDialog(dialog);
     }
 
+
+    /**
+     * The game asked to open one of its folders (an "Open folder" button in the game or a mod):
+     * import files straight into that folder, or browse it as before.
+     */
+    private void showGameFolderRequestDialog(@NonNull File folder, @NonNull Runnable browse) {
+        GameFileImportBridge bridge = gameFileImportBridge;
+        if (bridge == null || exiting || isFinishing() || isDestroyed()) {
+            browse.run();
+            return;
+        }
+        GameFileImportBridge.Kind kind = bridge.kindForFolder(folder);
+        String where = bridge.describeFolder(folder);
+
+        syncGameDialogThemeColors();
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dpToPx(22), dpToPx(18), dpToPx(22), 0);
+        root.setBackgroundColor(COLOR_DIALOG_BG);
+
+        TextView title = new TextView(this);
+        title.setText(where);
+        title.setTextColor(COLOR_TEXT_PRIMARY);
+        title.setTextSize(22f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        root.addView(title, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
+
+        TextView message = new TextView(this);
+        message.setText("The game asked to open this folder. Import files straight into it, "
+                + "or browse it in Android's file manager.\n\n"
+                + (kind == GameFileImportBridge.Kind.FILES
+                ? "Any file can be imported here."
+                : kind.label + ": " + kind.extensionsText() + ". " + kind.hint));
+        message.setTextColor(COLOR_TEXT_SECONDARY);
+        message.setTextSize(14f);
+        message.setPadding(0, dpToPx(10), 0, dpToPx(2));
+        root.addView(message, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
+
+        if (minecraftSurface != null) {
+            minecraftSurface.setAndroidVirtualMouseUiInteractionMode(true);
+        }
+        AlertDialog dialog = LauncherDialogStyle.builder(this)
+                .setView(root)
+                .setPositiveButton("Import files here", (d, which) -> bridge.startImportInto(folder))
+                .setNeutralButton("Browse folder", (d, which) -> browse.run())
+                .setNegativeButton(android.R.string.cancel, null)
+                .create();
+        dialog.setOnShowListener(d -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(COLOR_ACCENT);
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setTextColor(COLOR_ACCENT);
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(COLOR_TEXT_SECONDARY);
+        });
+        dialog.setOnDismissListener(d -> {
+            if (minecraftSurface != null) {
+                minecraftSurface.setAndroidVirtualMouseUiInteractionMode(false);
+            }
+            configureWindow();
+        });
+        dialog.show();
+        styleDarkDialog(dialog);
+    }
+
+    /** What to import into the running game; each choice opens Android's file picker. */
+    private void showInGameImportFilesDialog() {
+        GameFileImportBridge bridge = gameFileImportBridge;
+        if (bridge == null || exiting || isFinishing() || isDestroyed()) return;
+
+        if (minecraftSurface != null) {
+            minecraftSurface.setAndroidVirtualMouseUiInteractionMode(true);
+        }
+        syncGameDialogThemeColors();
+        ScrollView scrollView = new ScrollView(this);
+        scrollView.setFillViewport(false);
+        scrollView.setBackgroundColor(Color.TRANSPARENT);
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dpToPx(20), dpToPx(18), dpToPx(20), dpToPx(10));
+        scrollView.addView(root, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
+
+        TextView title = new TextView(this);
+        title.setText("Import files into this game");
+        title.setTextColor(COLOR_TEXT_PRIMARY);
+        title.setTextSize(22f);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        root.addView(title, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
+
+        TextView summary = new TextView(this);
+        summary.setText("Files go straight into " + bridge.getGameDirectory().getName()
+                + ". You can pick several at once.");
+        summary.setTextColor(COLOR_TEXT_SECONDARY);
+        summary.setTextSize(13f);
+        summary.setPadding(0, dpToPx(4), 0, dpToPx(12));
+        root.addView(summary, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
+
+        final AlertDialog[] dialogRef = new AlertDialog[1];
+        for (GameFileImportBridge.Kind kind : GameFileImportBridge.Kind.values()) {
+            // "Any file" is only for a folder the game itself asked to open.
+            if (kind == GameFileImportBridge.Kind.FILES) continue;
+            // Schematics only mean something with Litematica installed.
+            if (kind == GameFileImportBridge.Kind.SCHEMATICS && !bridge.isLitematicaInstalled()) {
+                continue;
+            }
+            String where = kind == GameFileImportBridge.Kind.DATA_PACKS
+                    ? "a world's datapacks folder"
+                    : kind.folder + "/";
+            root.addView(buildInGameDialogAction(
+                    kind.label,
+                    kind.extensionsText() + " into " + where + ". " + kind.hint,
+                    false,
+                    () -> {
+                        dismissDialog(dialogRef[0]);
+                        if (kind == GameFileImportBridge.Kind.DATA_PACKS) {
+                            showInGameImportWorldChooser(bridge);
+                        } else {
+                            bridge.startImport(kind, null);
+                        }
+                    }
+            ));
+        }
+
+        AlertDialog dialog = LauncherDialogStyle.builder(this)
+                .setView(scrollView)
+                .setNegativeButton(android.R.string.cancel, null)
+                .create();
+        dialogRef[0] = dialog;
+        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_NEGATIVE)
+                .setTextColor(COLOR_ACCENT));
+        dialog.setOnDismissListener(d -> {
+            if (minecraftSurface != null) {
+                minecraftSurface.setAndroidVirtualMouseUiInteractionMode(false);
+            }
+            configureWindow();
+        });
+        dialog.show();
+        styleDarkDialog(dialog);
+    }
+
+    /** Data packs belong to one world: pick it (most recently played first). */
+    private void showInGameImportWorldChooser(@NonNull GameFileImportBridge bridge) {
+        List<File> worlds = bridge.listWorlds();
+        if (worlds.isEmpty()) {
+            Toast.makeText(this, "This game has no singleplayer worlds yet.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        String[] names = new String[worlds.size()];
+        for (int i = 0; i < worlds.size(); i++) names[i] = worlds.get(i).getName();
+
+        if (minecraftSurface != null) {
+            minecraftSurface.setAndroidVirtualMouseUiInteractionMode(true);
+        }
+        AlertDialog dialog = LauncherDialogStyle.builder(this)
+                .setTitle("Data pack for which world?")
+                .setItems(names, (d, which) ->
+                        bridge.startImport(GameFileImportBridge.Kind.DATA_PACKS, worlds.get(which)))
+                .setNegativeButton(android.R.string.cancel, null)
+                .create();
+        dialog.setOnDismissListener(d -> {
+            if (minecraftSurface != null) {
+                minecraftSurface.setAndroidVirtualMouseUiInteractionMode(false);
+            }
+            configureWindow();
+        });
+        dialog.show();
+        styleDarkDialog(dialog);
+    }
 
     private void openInGameLauncherMenuFromBackShortcut() {
         if (exiting || isFinishing() || isDestroyed()) return;
@@ -11119,6 +11178,10 @@ public class GameActivity extends AppCompatActivity {
         if (flashDroidFilePickerBridge != null) {
             flashDroidFilePickerBridge.stop();
             flashDroidFilePickerBridge = null;
+        }
+        if (gameFileImportBridge != null) {
+            gameFileImportBridge.stop();
+            gameFileImportBridge = null;
         }
         if (GameRecordingService.isRecordingOrStarting()) {
             GameRecordingService.stop(this);

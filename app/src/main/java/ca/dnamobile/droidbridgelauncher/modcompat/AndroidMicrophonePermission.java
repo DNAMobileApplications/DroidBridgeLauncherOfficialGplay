@@ -14,7 +14,6 @@ package ca.dnamobile.droidbridgelauncher.modcompat;
 
 import android.Manifest;
 import android.app.Activity;
-import androidx.appcompat.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -23,7 +22,6 @@ import android.os.Build;
 import android.provider.Settings;
 
 import androidx.annotation.NonNull;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import ca.dnamobile.droidbridgelauncher.ui.LauncherDialogStyle;
 

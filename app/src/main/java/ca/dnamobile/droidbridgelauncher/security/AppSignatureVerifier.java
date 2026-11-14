@@ -101,34 +101,6 @@ public final class AppSignatureVerifier {
         return String.join(".", hashes);
     }
 
-    private static boolean isInstalledFromGooglePlay(@NonNull Context context) {
-        try {
-            PackageManager packageManager = context.getPackageManager();
-            String packageName = context.getPackageName();
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                android.content.pm.InstallSourceInfo source = packageManager.getInstallSourceInfo(packageName);
-                if (source != null) {
-                    if (isGooglePlayPackage(source.getInstallingPackageName())
-                            || isGooglePlayPackage(source.getInitiatingPackageName())
-                            || isGooglePlayPackage(source.getOriginatingPackageName())) {
-                        return true;
-                    }
-                }
-            }
-
-            @SuppressWarnings("deprecation")
-            String installer = packageManager.getInstallerPackageName(packageName);
-            return isGooglePlayPackage(installer);
-        } catch (Throwable ignored) {
-            return false;
-        }
-    }
-
-    private static boolean isGooglePlayPackage(@Nullable String packageName) {
-        return GOOGLE_PLAY_PACKAGE.equals(packageName);
-    }
-
     @NonNull
     private static List<String> getExpectedHashes() {
         ArrayList<String> hashes = new ArrayList<>();

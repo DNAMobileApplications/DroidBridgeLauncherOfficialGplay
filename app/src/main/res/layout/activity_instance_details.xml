@@ -169,17 +169,22 @@
         android:animateLayoutChanges="true"
         android:orientation="vertical">
 
+        <!-- Not baseline aligned: a taller button must not be pushed down and cut off. -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:baselineAligned="false"
             android:orientation="horizontal">
 
+            <!-- One line in portrait: the icon sits beside the text, and the text shrinks
+                 (14sp down to 11sp) rather than wrap on a narrow phone. -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/buttonBrowseContent"
                 android:elevation="0dp"
                 android:stateListAnimator="@null"
                 android:insetTop="0dp"
                 android:insetBottom="0dp"
+                android:singleLine="true"
                 android:maxLines="1"
                 android:ellipsize="end"
                 android:layout_width="0dp"
@@ -187,15 +192,22 @@
                 android:layout_weight="1"
                 android:minWidth="0dp"
                 android:minHeight="48dp"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
                 android:text="@string/button_browse_content"
-                app:icon="@drawable/ic_browse_content_24" />
+                app:autoSizeMaxTextSize="14sp"
+                app:autoSizeMinTextSize="11sp"
+                app:autoSizeStepGranularity="1sp"
+                app:autoSizeTextType="uniform"
+                app:icon="@drawable/ic_browse_content_24"
+                app:iconGravity="textStart"
+                app:iconPadding="6dp" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/buttonAddMods"
                 android:insetTop="0dp"
                 android:insetBottom="0dp"
+                android:singleLine="true"
                 android:maxLines="1"
                 android:ellipsize="end"
                 style="@style/Widget.Material3.Button.OutlinedButton"

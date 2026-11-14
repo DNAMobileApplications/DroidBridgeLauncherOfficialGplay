@@ -99,7 +99,6 @@ import ca.dnamobile.droidbridgelauncher.utils.path.PathManager;
 import ca.dnamobile.droidbridgelauncher.runtime.MinecraftGLSurface;
 import ca.dnamobile.droidbridgelauncher.runtime.GrabListener;
 import ca.dnamobile.droidbridgelauncher.runtime.LwjglGlfwKeycode;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 /**
  * Runtime/editor overlay. It deliberately avoids XML so it can be injected over the
@@ -1369,108 +1368,6 @@ public final class TouchControlsOverlay extends FrameLayout implements TouchCont
         }
     }
 
-    /**
-     * Undo while the per-button side panel is open without dismissing and recreating
-     * the dialog. The normal editor-level undo path rebuilds every child view, which
-     * invalidates the view/data references captured by the open panel. This variant
-     * restores the snapshot into the existing button instances when the control set is
-     * structurally unchanged (the normal case while editing one button).
-     */
-    private boolean undoLastChangeInPlace() {
-        if (undoHistory.isEmpty()) return false;
-        try {
-            String current = snapshotLayout();
-            String previous = undoHistory.removeLast();
-            if (!restoreEditSnapshotPreservingViews(previous)) {
-                undoHistory.addLast(previous);
-                return false;
-            }
-            pushBounded(redoHistory, current);
-            saveLayout();
-            return true;
-        } catch (Throwable throwable) {
-            Logging.e(TAG, "Unable to undo touch layout change in open panel", throwable);
-            return false;
-        }
-    }
-
-    private boolean redoLastChangeInPlace() {
-        if (redoHistory.isEmpty()) return false;
-        try {
-            String current = snapshotLayout();
-            String next = redoHistory.removeLast();
-            if (!restoreEditSnapshotPreservingViews(next)) {
-                redoHistory.addLast(next);
-                return false;
-            }
-            pushBounded(undoHistory, current);
-            saveLayout();
-            return true;
-        } catch (Throwable throwable) {
-            Logging.e(TAG, "Unable to redo touch layout change in open panel", throwable);
-            return false;
-        }
-    }
-
-    /**
-     * Restores a snapshot while preserving the TouchControlData and
-     * TouchControlButtonView objects currently referenced by an open properties panel.
-     * Structural changes are rejected here and remain handled by the normal full
-     * rebuild path after the panel is closed.
-     */
-    private boolean restoreEditSnapshotPreservingViews(@NonNull String snapshot) throws Exception {
-        String currentSnapshot = snapshotLayout();
-        ArrayList<TouchControlButtonView> existingButtons = new ArrayList<>();
-        for (int i = 0; i < getChildCount(); i++) {
-            View child = getChildAt(i);
-            if (child instanceof TouchControlButtonView) {
-                existingButtons.add((TouchControlButtonView) child);
-            }
-        }
-
-        restoreEditSnapshot(snapshot);
-        if (layoutData.controls.size() != existingButtons.size()) {
-            restoreEditSnapshot(currentSnapshot);
-            return false;
-        }
-
-        ArrayList<TouchControlButtonView> matchedButtons = new ArrayList<>();
-        for (TouchControlData restored : layoutData.controls) {
-            TouchControlButtonView match = null;
-            for (TouchControlButtonView candidate : existingButtons) {
-                if (restored.id.equals(candidate.getData().id)) {
-                    match = candidate;
-                    break;
-                }
-            }
-            if (match == null || matchedButtons.contains(match)) {
-                restoreEditSnapshot(currentSnapshot);
-                return false;
-            }
-            matchedButtons.add(match);
-        }
-
-        for (int i = 0; i < layoutData.controls.size(); i++) {
-            TouchControlData restored = layoutData.controls.get(i);
-            TouchControlButtonView button = matchedButtons.get(i);
-            TouchControlData existing = button.getData();
-            copyControlState(restored, existing);
-            layoutData.controls.set(i, existing);
-        }
-
-        for (TouchControlButtonView button : matchedButtons) {
-            TouchControlData control = button.getData();
-            applyControlPreview(button, control);
-            button.setEditMode(editMode);
-            button.setVisibility(shouldShowControlButton(control) ? VISIBLE : INVISIBLE);
-        }
-        if (selectedEditButton != null) {
-            selectedEditButton.setEditSelected(true);
-        }
-        invalidate();
-        return true;
-    }
-
     private static void copyControlState(
             @NonNull TouchControlData source,
             @NonNull TouchControlData target
@@ -2208,10 +2105,6 @@ public final class TouchControlsOverlay extends FrameLayout implements TouchCont
         int gapDp = Math.round(gapPx / density);
         if (gapDp == 0) gapDp = 0; // Normalize negative zero-style edge cases.
         return gapDp + " dp";
-    }
-
-    private static float overlapLength(float aStart, float aEnd, float bStart, float bEnd) {
-        return Math.max(0f, Math.min(aEnd, bEnd) - Math.max(aStart, bStart));
     }
 
     private static float overlapMidpoint(float aStart, float aEnd, float bStart, float bEnd) {
@@ -7963,19 +7856,6 @@ public final class TouchControlsOverlay extends FrameLayout implements TouchCont
                 : "Bound buttons: " + TouchInputBinding.friendlyKeyCombo(activeCodes) + "\nSlots: " + detail);
     }
 
-    private int[] parseKeyCodes(@NonNull String text, int fallback) {
-        String[] parts = text.split("[,\\s]+");
-        java.util.ArrayList<Integer> values = new java.util.ArrayList<>();
-        for (String part : parts) {
-            if (part == null || part.trim().isEmpty()) continue;
-            try { values.add(Integer.parseInt(part.trim())); } catch (Throwable ignored) { }
-        }
-        if (values.isEmpty()) return new int[]{fallback};
-        int[] result = new int[values.size()];
-        for (int i = 0; i < values.size(); i++) result[i] = values.get(i);
-        return result;
-    }
-
     @NonNull
     private String joinKeyCodes(@NonNull int[] codes) {
         StringBuilder builder = new StringBuilder();
@@ -8085,24 +7965,6 @@ public final class TouchControlsOverlay extends FrameLayout implements TouchCont
     @NonNull
     private static String formatColor(int color) {
         return String.format(java.util.Locale.US, "#%08X", color);
-    }
-
-    private static int parseColorValue(@NonNull String value, int fallback) {
-        String text = value.trim();
-        if (text.isEmpty()) return fallback;
-        try {
-            if (!text.startsWith("#")) text = "#" + text;
-            if (text.length() == 7) {
-                // #RRGGBB => force fully opaque border.
-                return (int) (0xFF000000L | Long.parseLong(text.substring(1), 16));
-            }
-            if (text.length() == 9) {
-                return (int) Long.parseLong(text.substring(1), 16);
-            }
-            return Color.parseColor(text);
-        } catch (Throwable ignored) {
-            return fallback;
-        }
     }
 
     private int dp(float value) {
@@ -9985,19 +9847,6 @@ public final class TouchControlsOverlay extends FrameLayout implements TouchCont
         if (CallbackBridge.windowHeight > 1) return CallbackBridge.windowHeight;
         if (CallbackBridge.physicalHeight > 1) return CallbackBridge.physicalHeight;
         return Math.max(1f, getHeight());
-    }
-
-    private void sendAbsoluteCursor(float x, float y) {
-        try {
-            CallbackBridge.setInputReady(true);
-            CallbackBridge.mouseX = clamp(
-                    x, 0f, maxCursorCoordinate(resolveVirtualCursorCoordinateWidth()));
-            CallbackBridge.mouseY = clamp(
-                    y, 0f, maxCursorCoordinate(resolveVirtualCursorCoordinateHeight()));
-            CallbackBridge.sendCursorPos(CallbackBridge.mouseX, CallbackBridge.mouseY);
-        } catch (Throwable throwable) {
-            Logging.e(TAG, "Unable to send virtual mouse cursor", throwable);
-        }
     }
 
     private void refreshTouchCameraSensitivityMultiplier() {

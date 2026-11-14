@@ -17,7 +17,6 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Build;
-import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.text.Html;
 import android.text.Spanned;
@@ -36,7 +35,6 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
-import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -482,19 +480,6 @@ public final class ContentProjectDetailsActivity extends ControllerNavigationAct
             if (matchesMinecraftVersionFilter(row, selected)) count++;
         }
         return count;
-    }
-
-    private int resolveThemeColor(int attr, int fallback) {
-        TypedValue value = new TypedValue();
-        if (!getTheme().resolveAttribute(attr, value, true)) return fallback;
-        if (value.resourceId != 0) {
-            try {
-                return getResources().getColor(value.resourceId);
-            } catch (Throwable ignored) {
-                return fallback;
-            }
-        }
-        return value.data;
     }
 
     private int getVersionPageCount(int count) {

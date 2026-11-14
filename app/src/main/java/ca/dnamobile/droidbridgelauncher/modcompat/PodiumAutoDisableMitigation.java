@@ -28,7 +28,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Enumeration;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -210,14 +209,6 @@ public final class PodiumAutoDisableMitigation {
             Logger.appendToLog(stripTrailingLineBreaks(message));
         } catch (Throwable ignored) {
             Logging.i(TAG, message);
-        }
-    }
-
-    private static void appendBlankLogLine() {
-        try {
-            Logger.appendToLog("");
-        } catch (Throwable ignored) {
-            Logging.i(TAG, "");
         }
     }
 

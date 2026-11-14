@@ -29,9 +29,9 @@ import java.io.IOException;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.util.ArrayList;
-import java.util.List;
 import java.util.Locale;
 
+import ca.dnamobile.droidbridgelauncher.GameFileImportBridge;
 import ca.dnamobile.droidbridgelauncher.feature.log.Logging;
 import ca.dnamobile.droidbridgelauncher.utils.path.PathManager;
 
@@ -102,6 +102,22 @@ public final class AndroidGameFolderOpener {
                 + ", exists=" + folder.exists()
                 + ", directory=" + folder.isDirectory());
 
+        // A folder of the running game (Litematica's Open Directory, Open Pack Folder, a shader
+        // folder...): DroidBridge offers "Import files here" for exactly that folder, or browsing
+        // it as before. A request to open a file (a screenshot, a log) is only opened.
+        if (!requestedTarget.isFile()) {
+            final File browseTarget = folder;
+            if (GameFileImportBridge.offerFolderImport(browseTarget,
+                    () -> browseFolder(context, browseTarget))) {
+                Logging.i(TAG, "Offered import/browse for in-game folder " + browseTarget);
+                return true;
+            }
+        }
+        return browseFolder(context, folder);
+    }
+
+    /** Shows {@code folder} in Android's file manager (DocumentsUI), or any app for it. */
+    private static boolean browseFolder(@NonNull Context context, @NonNull File folder) {
         Uri folderUri = buildInitialUri(context, folder);
         if (folderUri == null) {
             Logging.i(TAG, "No DocumentsUI URI for in-game folder request: " + folder.getAbsolutePath());

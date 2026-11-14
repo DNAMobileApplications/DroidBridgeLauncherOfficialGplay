@@ -50,7 +50,6 @@ import androidx.annotation.Nullable;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AlertDialog;
-import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.GridLayoutManager;
 
 import com.google.android.material.button.MaterialButton;
@@ -120,6 +119,13 @@ public class DroidBridgeLaunchActivity extends ControllerNavigationActivity {
     private static final String FILTER_MODIFIED = "modified";
     private static final String FILTER_SNAPSHOT = "snapshot";
     private static final String FILTER_SHARED = "shared";
+    /** How the All tab orders instances (its arrow opens the choices). */
+    private static final String SORT_PREFS = "droidbridge_instance_sort";
+    private static final String SORT_KEY = "all_tab_sort";
+    private static final String SORT_DEFAULT = "default";
+    private static final String SORT_OLDEST = "oldest";
+    private static final String SORT_NEWEST = "newest";
+    private static final String SORT_INSTALLED = "installed";
     private static final int REQUEST_PICK_INSTANCE_ICON = 8021;
     private static final int REQUEST_ADD_STORAGE_LOCATION = 8032;
     private static final int REQUEST_IMPORT_MODPACK = 8033;
@@ -144,6 +150,7 @@ public class DroidBridgeLaunchActivity extends ControllerNavigationActivity {
     @Nullable
     private LauncherInstance selectedInstance;
     private String selectedFilter = FILTER_ALL;
+    private String instanceSort = SORT_DEFAULT;
     @NonNull
     private String appliedLauncherTheme = LauncherPreferences.LAUNCHER_THEME_ORANGE;
     // The XML inflated by this Activity must match the configuration orientation.
@@ -212,6 +219,7 @@ public class DroidBridgeLaunchActivity extends ControllerNavigationActivity {
         PathManager.initContextConstants(this);
         RecordingRecovery.recoverAsync(this);
         selectedFilter = sanitizeSavedFilter(LauncherPreferences.getSelectedInstanceFilter(this, FILTER_ALL));
+        instanceSort = loadInstanceSort();
 
         // Do not manually choose activity_main_portrait/activity_main_landscape.
         // Android's resource resolver must pick res/layout-port/activity_main.xml or
@@ -820,7 +828,7 @@ public class DroidBridgeLaunchActivity extends ControllerNavigationActivity {
         selectedFilter = sanitizeSavedFilter(selectedFilter);
         binding.tabVersionTypes.removeAllTabs();
 
-        addInstanceTab(getString(R.string.instance_tab_all), FILTER_ALL, FILTER_ALL.equals(selectedFilter));
+        addAllSortTab(FILTER_ALL.equals(selectedFilter));
         addInstanceIconTab(R.drawable.ic_favorite_24, getString(R.string.instance_tab_favorites), FILTER_FAVORITES, FILTER_FAVORITES.equals(selectedFilter));
         addInstanceTab(getString(R.string.instance_tab_recent), FILTER_RECENT, FILTER_RECENT.equals(selectedFilter));
         addInstanceTab(getString(R.string.instance_tab_vanilla), FILTER_VANILLA, FILTER_VANILLA.equals(selectedFilter));
@@ -859,8 +867,220 @@ public class DroidBridgeLaunchActivity extends ControllerNavigationActivity {
 
             @Override
             public void onTabReselected(TabLayout.Tab tab) {
+                // Tapping All again opens its sort choices.
+                if (FILTER_ALL.equals(tab.getTag())) {
+                    View anchor = tab.getCustomView() != null ? tab.getCustomView() : tab.view;
+                    showInstanceSortMenu(anchor);
+                }
             }
         });
+    }
+
+    // --- The All tab's sort (All / Oldest to newest / Newest to oldest / Recently installed) ---
+
+    @NonNull
+    private String loadInstanceSort() {
+        String value = getSharedPreferences(SORT_PREFS, MODE_PRIVATE).getString(SORT_KEY, SORT_DEFAULT);
+        if (SORT_OLDEST.equals(value) || SORT_NEWEST.equals(value) || SORT_INSTALLED.equals(value)) {
+            return value;
+        }
+        return SORT_DEFAULT;
+    }
+
+    private void saveInstanceSort() {
+        getSharedPreferences(SORT_PREFS, MODE_PRIVATE).edit().putString(SORT_KEY, instanceSort).apply();
+    }
+
+    /** The All tab's text: "All", or the sort it shows. */
+    @NonNull
+    private String instanceSortTabLabel() {
+        switch (instanceSort) {
+            case SORT_OLDEST:
+                return getString(R.string.instance_sort_tab_oldest);
+            case SORT_NEWEST:
+                return getString(R.string.instance_sort_tab_newest);
+            case SORT_INSTALLED:
+                return getString(R.string.instance_sort_tab_installed);
+            default:
+                return getString(R.string.instance_tab_all);
+        }
+    }
+
+    /**
+     * The All tab: its text and a drop-down arrow (both orientations; the tabs are built
+     * here, not in the layouts). The arrow, or tapping All while it's selected, opens the
+     * sort choices.
+     */
+    private void addAllSortTab(boolean selected) {
+        TabLayout.Tab tab = binding.tabVersionTypes.newTab();
+        ColorStateList colors = binding.tabVersionTypes.getTabTextColors();
+
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.HORIZONTAL);
+        box.setGravity(Gravity.CENTER);
+
+        TextView text = new TextView(this);
+        // TabLayout puts the tab's text in the custom view's text1.
+        text.setId(android.R.id.text1);
+        androidx.core.widget.TextViewCompat.setTextAppearance(
+                text, com.google.android.material.R.style.TextAppearance_Material3_TitleSmall);
+        if (colors != null) text.setTextColor(colors);
+        text.setMaxLines(1);
+        box.addView(text, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        ImageView arrow = new ImageView(this);
+        arrow.setImageResource(R.drawable.ic_arrow_drop_down_24);
+        if (colors != null) arrow.setImageTintList(colors);
+        arrow.setContentDescription(getString(R.string.instance_sort_menu_title));
+        box.addView(arrow, new LinearLayout.LayoutParams(dp(22), dp(22)));
+
+        tab.setCustomView(box);
+        tab.setText(instanceSortTabLabel());
+        tab.setContentDescription(getString(R.string.instance_sort_tab_description, instanceSortTabLabel()));
+        tab.setTag(FILTER_ALL);
+        binding.tabVersionTypes.addTab(tab, selected);
+        // Shows in logcat (tag DroidBridgeSort) when this build has the sort arrow.
+        android.util.Log.i("DroidBridgeSort", "All tab sort arrow added, sort=" + instanceSort);
+
+        arrow.setOnClickListener(view -> {
+            if (!tab.isSelected()) tab.select();
+            showInstanceSortMenu(box);
+        });
+    }
+
+    private void showInstanceSortMenu(@NonNull View anchor) {
+        android.widget.PopupMenu menu = new android.widget.PopupMenu(this, anchor);
+        String[] keys = {SORT_DEFAULT, SORT_OLDEST, SORT_NEWEST, SORT_INSTALLED};
+        int[] labels = {
+                R.string.instance_sort_all,
+                R.string.instance_sort_oldest,
+                R.string.instance_sort_newest,
+                R.string.instance_sort_installed
+        };
+        for (int i = 0; i < keys.length; i++) {
+            android.view.MenuItem item = menu.getMenu().add(0, i, i, labels[i]);
+            item.setCheckable(true);
+            item.setChecked(keys[i].equals(instanceSort));
+        }
+        menu.getMenu().setGroupCheckable(0, true, true);
+        menu.setOnMenuItemClickListener(item -> {
+            int index = item.getItemId();
+            if (index < 0 || index >= keys.length) return false;
+            instanceSort = keys[index];
+            saveInstanceSort();
+            updateAllTabLabel();
+            if (!FILTER_ALL.equals(selectedFilter)) {
+                selectTabByFilter(FILTER_ALL);
+            }
+            applyInstanceFilter();
+            return true;
+        });
+        menu.show();
+    }
+
+    private void updateAllTabLabel() {
+        if (binding == null || binding.tabVersionTypes == null) return;
+        for (int i = 0; i < binding.tabVersionTypes.getTabCount(); i++) {
+            TabLayout.Tab tab = binding.tabVersionTypes.getTabAt(i);
+            if (tab != null && FILTER_ALL.equals(tab.getTag())) {
+                tab.setText(instanceSortTabLabel());
+                tab.setContentDescription(getString(R.string.instance_sort_tab_description, instanceSortTabLabel()));
+                return;
+            }
+        }
+    }
+
+    /** The All tab's order. Ties keep the name order, so the list doesn't jump around. */
+    private void sortInstancesForAllTab(@NonNull ArrayList<LauncherInstance> instances) {
+        if (SORT_DEFAULT.equals(instanceSort)) return;
+        java.util.Comparator<LauncherInstance> byName =
+                (left, right) -> left.getName().compareToIgnoreCase(right.getName());
+        if (SORT_INSTALLED.equals(instanceSort)) {
+            // Newest install first: a version just installed is always top left.
+            java.util.HashMap<String, Long> installed = new java.util.HashMap<>();
+            for (LauncherInstance instance : instances) {
+                installed.put(instance.getId(), installedAtMillis(instance));
+            }
+            instances.sort((left, right) -> {
+                int c = Long.compare(installed.get(right.getId()), installed.get(left.getId()));
+                return c != 0 ? c : byName.compare(left, right);
+            });
+            return;
+        }
+        // The game version's release date (Mojang's list), else its number.
+        java.util.HashMap<String, String> released = new java.util.HashMap<>();
+        for (MinecraftVersion version : allVersions) {
+            released.put(version.getId(), version.getReleaseTime());
+        }
+        java.util.Comparator<LauncherInstance> oldestFirst = (left, right) -> {
+            String a = gameVersionOf(left);
+            String b = gameVersionOf(right);
+            String timeA = released.get(a);
+            String timeB = released.get(b);
+            int c;
+            if (timeA != null && timeB != null) {
+                c = timeA.compareTo(timeB);
+            } else if (timeA != null || timeB != null) {
+                // Versions Mojang's list doesn't have go after the ones it does.
+                c = timeA != null ? -1 : 1;
+            } else {
+                c = compareVersionNumbers(a, b);
+            }
+            return c != 0 ? c : byName.compare(left, right);
+        };
+        instances.sort(SORT_NEWEST.equals(instanceSort)
+                ? (left, right) -> {
+                    int c = oldestFirst.compare(right, left);
+                    return c;
+                }
+                : oldestFirst);
+    }
+
+    @NonNull
+    private static String gameVersionOf(@NonNull LauncherInstance instance) {
+        String id = instance.getMinecraftVersionId();
+        return id == null || id.trim().isEmpty() ? instance.getBaseVersionId() : id.trim();
+    }
+
+    /** When an instance was installed: its creation time, or its files' date. */
+    private long installedAtMillis(@NonNull LauncherInstance instance) {
+        if (instance.isIsolated()) {
+            String created = instance.getCreatedAt();
+            if (created != null && !created.isEmpty()) {
+                try {
+                    java.util.Date date = new java.text.SimpleDateFormat(
+                            "yyyy-MM-dd'T'HH:mm:ss.SSSZ", Locale.US).parse(created);
+                    if (date != null) return date.getTime();
+                } catch (Exception ignored) {
+                    // An older or hand-edited instance.json: its file date below.
+                }
+            }
+            File metadata = new File(instance.getRootDirectory(), "instance.json");
+            return metadata.isFile() ? metadata.lastModified() : instance.getRootDirectory().lastModified();
+        }
+        // A shared install: when its version files were written.
+        String id = instance.getBaseVersionId();
+        File versionJson = new File(new File(new File(instance.getRootDirectory(), "versions"), id), id + ".json");
+        return versionJson.isFile() ? versionJson.lastModified() : 0L;
+    }
+
+    /** "1.8.9" < "1.20.1" < "26.3": number by number, then text. */
+    private static int compareVersionNumbers(@NonNull String a, @NonNull String b) {
+        String[] pa = a.split("[.\\-_ ]");
+        String[] pb = b.split("[.\\-_ ]");
+        for (int i = 0; i < Math.max(pa.length, pb.length); i++) {
+            String x = i < pa.length ? pa[i] : "";
+            String y = i < pb.length ? pb[i] : "";
+            int c;
+            try {
+                c = Integer.compare(x.isEmpty() ? -1 : Integer.parseInt(x), y.isEmpty() ? -1 : Integer.parseInt(y));
+            } catch (NumberFormatException e) {
+                c = x.compareToIgnoreCase(y);
+            }
+            if (c != 0) return c;
+        }
+        return 0;
     }
 
     private void refreshInstanceTabsForSettings() {
@@ -1107,6 +1327,8 @@ public class DroidBridgeLaunchActivity extends ControllerNavigationActivity {
                     LauncherPreferences.getInstanceLastPlayed(this, right.getId()),
                     LauncherPreferences.getInstanceLastPlayed(this, left.getId())
             ));
+        } else if (FILTER_ALL.equals(selectedFilter)) {
+            sortInstancesForAllTab(filtered);
         }
 
         instanceAdapter.submitList(filtered);

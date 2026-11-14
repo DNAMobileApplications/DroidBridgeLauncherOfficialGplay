@@ -38,7 +38,6 @@ import androidx.appcompat.app.AlertDialog;
 
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.slider.Slider;
 import com.google.android.material.switchmaterial.SwitchMaterial;
 import com.google.android.material.textfield.MaterialAutoCompleteTextView;
@@ -55,6 +54,7 @@ import ca.dnamobile.droidbridgelauncher.engine.EnginePreferences;
 import ca.dnamobile.droidbridgelauncher.engine.GameEngine;
 import ca.dnamobile.droidbridgelauncher.engine.horizon.HorizonAddonsActivity;
 import ca.dnamobile.droidbridgelauncher.engine.horizon.HorizonEngine;
+import ca.dnamobile.droidbridgelauncher.engine.rustcraft.RustcraftEngine;
 import ca.dnamobile.droidbridgelauncher.ui.LauncherDialogStyle;
 import ca.dnamobile.droidbridgelauncher.launcher.DistantHorizonsGcMitigation;
 import ca.dnamobile.droidbridgelauncher.launcher.InstanceLaunchSettings;
@@ -108,6 +108,8 @@ public final class PerInstanceSettingsDialog {
     private int selectedGameEngineIndex;
     private boolean horizonEngineAvailable;
     @Nullable private LauncherInstance horizonInstance;
+    /** The Rust engine this instance's version uses: HORIZON (26.3) or RUSTCRAFT (1.0). */
+    @NonNull private GameEngine rustEngine = GameEngine.HORIZON;
 
     private MaterialAutoCompleteTextView gameEngineDropdown;
     private MaterialAutoCompleteTextView rendererDropdown;
@@ -337,6 +339,11 @@ public final class PerInstanceSettingsDialog {
     @Nullable
     private View createGameEngineSection() {
         LauncherInstance target = LauncherInstanceManager.findByNameOrId(activity, settingsKey);
+        if (target != null
+                && RustcraftEngine.supportsInstance(target.getMinecraftVersionId(), target.getLoader())) {
+            return createRustcraftEngineSection(target);
+        }
+        rustEngine = GameEngine.HORIZON;
         if (target == null
                 || !HorizonEngine.supportsInstance(target.getMinecraftVersionId(), target.getLoader())) {
             horizonInstance = null;
@@ -447,6 +454,116 @@ public final class PerInstanceSettingsDialog {
             LinearLayout.LayoutParams addonsParams = matchWrap();
             addonsParams.setMargins(0, dp(6), 0, 0);
             section.addView(addons, addonsParams);
+        }
+        return section;
+    }
+
+    /**
+     * The Game Engine section of a vanilla instance some Rust Craft title update plays (1.0:
+     * TU1, 1.1: TU2, 1.2.5: TU3, 1.3.2: TU4, 1.4.7: TU5): Java or that title update.
+     */
+    @NonNull
+    private View createRustcraftEngineSection(@NonNull LauncherInstance target) {
+        horizonInstance = target;
+        rustEngine = GameEngine.RUSTCRAFT;
+        String version = target.getMinecraftVersionId();
+        String rustLabel = RustcraftEngine.labelFor(version);
+        RustcraftEngine.TitleUpdate titleUpdate = RustcraftEngine.forVersion(version);
+        String game = titleUpdate == null ? String.valueOf(version) : titleUpdate.game;
+        String deviceProblem = RustcraftEngine.deviceProblem(activity, version);
+        horizonEngineAvailable = deviceProblem == null;
+        GameEngine savedEngine = EnginePreferences.get(activity, settingsKey);
+        selectedGameEngineIndex = savedEngine == GameEngine.RUSTCRAFT && horizonEngineAvailable ? 1 : 0;
+
+        LinearLayout section = createSection();
+        addSectionTitle(
+                section,
+                "Game Engine",
+                "Java is the default. The Rust engine is an optional, experimental rewrite of vanilla "
+                        + "Minecraft " + game + " (singleplayer) in Rust: " + rustLabel + "."
+        );
+
+        String[] labels = {
+                "Java (default)",
+                rustLabel + " (experimental)"
+        };
+        gameEngineDropdown = new MaterialAutoCompleteTextView(activity);
+        gameEngineDropdown.setInputType(InputType.TYPE_NULL);
+        gameEngineDropdown.setSingleLine(true);
+        gameEngineDropdown.setAdapter(new ArrayAdapter<>(
+                activity, android.R.layout.simple_list_item_1, labels));
+        gameEngineDropdown.setText(labels[selectedGameEngineIndex], false);
+        gameEngineDropdown.setOnClickListener(view -> {
+            if (horizonEngineAvailable) gameEngineDropdown.showDropDown();
+        });
+        gameEngineDropdown.setOnItemClickListener((parent, view, position, id) -> {
+            Object clicked = parent.getItemAtPosition(position);
+            String clickedLabel = clicked == null ? "" : clicked.toString();
+            selectedGameEngineIndex = labels[1].equals(clickedLabel) ? 1 : 0;
+            gameEngineDropdown.setText(labels[selectedGameEngineIndex], false);
+        });
+        if (!horizonEngineAvailable) {
+            gameEngineDropdown.setEnabled(false);
+            gameEngineDropdown.setAlpha(0.62f);
+            selectedGameEngineIndex = 0;
+            gameEngineDropdown.setText(labels[0], false);
+        }
+
+        TextInputLayout layout = createDropdownLayout("Game Engine");
+        layout.addView(gameEngineDropdown, matchWrap());
+        section.addView(layout, matchWrap());
+
+        TextView requirementTitle = new TextView(activity);
+        requirementTitle.setText("IMPORTANT — Minecraft ownership required");
+        requirementTitle.setTextSize(12);
+        requirementTitle.setTypeface(requirementTitle.getTypeface(), Typeface.BOLD);
+        requirementTitle.setTextColor(LauncherDialogStyle.COLOR_TEXT_PRIMARY);
+        requirementTitle.setPadding(0, dp(8), 0, 0);
+        section.addView(requirementTitle, matchWrap());
+
+        TextView requirements = new TextView(activity);
+        requirements.setTextSize(12);
+        requirements.setTextColor(LauncherDialogStyle.COLOR_TEXT_SECONDARY);
+        requirements.setPadding(0, dp(3), 0, 0);
+        requirements.setText(
+                "The Rust engine does not bypass Minecraft ownership or Microsoft authentication. "
+                        + "It reads its textures from this instance's own Minecraft "
+                        + game + " client jar (downloaded from Mojang the first time, like any "
+                        + "version), and you must be signed in to a Microsoft account that owns "
+                        + "Minecraft: Java Edition. Worlds are saved in Minecraft " + game + "'s own "
+                        + "format in this instance's saves folder, so the Java engine opens them too. "
+                        + "Each Minecraft version has its own title update: a 1.0 instance always "
+                        + "plays TU1, a 1.1 instance TU2, a 1.2.5 instance TU3, a 1.3.2 "
+                        + "instance TU4 and a 1.4.7 instance TU5."
+        );
+        section.addView(requirements, matchWrap());
+
+        if (!horizonEngineAvailable && deviceProblem != null) {
+            TextView unavailable = new TextView(activity);
+            unavailable.setText("The Rust engine is unavailable on this device/build: " + deviceProblem);
+            unavailable.setTextSize(12);
+            unavailable.setTypeface(unavailable.getTypeface(), Typeface.BOLD);
+            unavailable.setTextColor(LauncherDialogStyle.COLOR_TEXT_SECONDARY);
+            unavailable.setPadding(0, dp(8), 0, 0);
+            section.addView(unavailable, matchWrap());
+        } else {
+            MaterialButton advanced = new MaterialButton(
+                    activity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle);
+            advanced.setText("Rust Engine Settings");
+            advanced.setAllCaps(false);
+            advanced.setOnClickListener(view -> EngineLauncher.showEngineSettings(
+                    activity,
+                    new EngineLauncher.Target(
+                            settingsKey,
+                            target.getName(),
+                            target.getMinecraftVersionId(),
+                            target.getLoader(),
+                            target.getGameDirectory()
+                    )
+            ));
+            LinearLayout.LayoutParams advancedParams = matchWrap();
+            advancedParams.setMargins(0, dp(8), 0, 0);
+            section.addView(advanced, advancedParams);
         }
         return section;
     }
@@ -1299,7 +1416,7 @@ public final class PerInstanceSettingsDialog {
                     activity,
                     settingsKey,
                     selectedGameEngineIndex == 1 && horizonEngineAvailable
-                            ? GameEngine.HORIZON
+                            ? rustEngine
                             : GameEngine.JAVA
             );
         }
@@ -1321,10 +1438,6 @@ public final class PerInstanceSettingsDialog {
      * silently change the launcher default for every other instance. GameActivity and
      * LaunchGame both resolve this instance key directly before native/Java startup.
      */
-
-    private void saveAllAliases(@NonNull InstanceLaunchSettings.Settings settings) {
-        InstanceLaunchSettings.save(activity, settingsKey, settings);
-    }
 
     private void clearAllAliases() {
         InstanceLaunchSettings.clear(activity, settingsKey);
@@ -1483,11 +1596,6 @@ public final class PerInstanceSettingsDialog {
         TextInputLayout layout = createOutlinedLayout(hint);
         layout.setEndIconMode(TextInputLayout.END_ICON_DROPDOWN_MENU);
         return layout;
-    }
-
-    private int calculateMaxFormHeight() {
-        int height = activity.getResources().getDisplayMetrics().heightPixels;
-        return Math.min(dp(440), Math.max(dp(250), height - dp(310)));
     }
 
     private LinearLayout.LayoutParams matchWrap() {

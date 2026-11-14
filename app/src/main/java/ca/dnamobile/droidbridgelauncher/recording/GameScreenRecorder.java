@@ -15,7 +15,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
-import android.media.AudioAttributes;
 import android.media.AudioFormat;
 import android.media.AudioPlaybackCaptureConfiguration;
 import android.media.AudioRecord;
@@ -969,10 +968,6 @@ public final class GameScreenRecorder {
         } catch (InterruptedException ignored) {
             Thread.currentThread().interrupt();
         }
-    }
-
-    private static int makeEven(int value) {
-        return (value & 1) == 0 ? value : value - 1;
     }
 
     private static final class DrainStatus {

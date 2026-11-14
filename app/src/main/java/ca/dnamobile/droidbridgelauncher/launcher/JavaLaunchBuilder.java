@@ -76,7 +76,6 @@ import ca.dnamobile.droidbridgelauncher.ui.version.InheritedVersionFlattener;
 import ca.dnamobile.droidbridgelauncher.utils.path.PathManager;
 import ca.dnamobile.droidbridgelauncher.utils.path.LibPath;
 import ca.dnamobile.droidbridgelauncher.runtime.Architecture;
-import ca.dnamobile.droidbridgelauncher.runtime.multirt.MultiRTUtils;
 
 public final class JavaLaunchBuilder {
     private static final String TAG = "JavaLaunchBuilder";
@@ -2683,6 +2682,7 @@ public final class JavaLaunchBuilder {
                 + " MB, Xmx=" + allocatedMemoryMb + " MB"
                 + (legacyForgeRuntime ? " (legacy Forge Reborn parity profile)" : ""));
 
+        if (!legacyForgeRuntime) addFramePacingGcProfileIfUnset(args, allocatedMemoryMb);
         args.add("-XX:ActiveProcessorCount=" + java.lang.Runtime.getRuntime().availableProcessors());
         args.add("-Xms" + startMemoryMb + "M");
         args.add("-Xmx" + allocatedMemoryMb + "M");
@@ -2807,6 +2807,37 @@ public final class JavaLaunchBuilder {
         }
     }
 
+    /** JVM options that pick or tune the garbage collector. */
+    static boolean isGcSelectionOrTuningArg(@NonNull String arg) {
+        return (arg.startsWith("-XX:+Use") && arg.endsWith("GC"))
+                || (arg.startsWith("-XX:-Use") && arg.endsWith("GC"))
+                || arg.startsWith("-XX:G1")
+                || arg.startsWith("-XX:MaxGCPauseMillis=")
+                || arg.startsWith("-XX:+ZGenerational")
+                || arg.startsWith("-XX:-ZGenerational");
+    }
+
+    /**
+     * Mojang's own launcher runs the game with G1 tuned for short pauses. Without it, HotSpot
+     * picks its defaults (G1 with 200 ms pause targets, or Parallel GC on Java 8), which on a
+     * phone shows up as periodic frame hitches when the young generation fills. Applied only
+     * when nothing else (the version JSON, a mod mitigation) chose a collector; per-instance
+     * JVM arguments that pick a collector replace it (InstanceLaunchSettings.applyJvmOverrides).
+     * Smaller heaps get smaller G1 regions so the collector still has enough of them.
+     */
+    private void addFramePacingGcProfileIfUnset(@NonNull ArrayList<String> args, int maxHeapMb) {
+        for (String arg : args) {
+            if (isGcSelectionOrTuningArg(arg)) return;
+        }
+        addJvmArgIfMissing(args, "-XX:+UnlockExperimentalVMOptions");
+        args.add("-XX:+UseG1GC");
+        args.add("-XX:G1NewSizePercent=20");
+        args.add("-XX:G1ReservePercent=20");
+        args.add("-XX:MaxGCPauseMillis=50");
+        args.add("-XX:G1HeapRegionSize=" + (maxHeapMb >= 2048 ? "32M" : "16M"));
+        Logging.i(TAG, "Applied frame-pacing G1 profile (Mojang launcher defaults)");
+    }
+
     private static int resolveStartHeapMb(int maxHeapMb) {
         if (maxHeapMb <= 0) return 512;
 
@@ -2842,15 +2873,6 @@ public final class JavaLaunchBuilder {
         int[] parsed = parseReleaseVersion(versionJson.optString("id", versionId));
         if (parsed == null) return true;
         return parsed[0] == 1 && parsed[1] <= 16;
-    }
-
-    private void addLegacyForgeJvmStabilityArgs(
-            @NonNull ArrayList<String> args,
-            @NonNull JSONObject versionJson
-    ) {
-        // Intentionally empty. The working Reborn/the prior implementation RLCraft launch does not
-        // force -Xss or TieredStopAtLevel, so DroidBridge should not add those
-        // unless a future crash log proves they are required for a specific pack.
     }
 
 
@@ -3629,24 +3651,6 @@ public final class JavaLaunchBuilder {
         return resolveRuntimeMajor(runtimeDir) >= 22;
     }
 
-    private boolean shouldSkipLibPatcherForKrypton261(
-            @Nullable RendererInterface renderer,
-            @NonNull JSONObject versionJson
-    ) {
-        return isKryptonRenderer(renderer) && isMinecraft261Family(buildMinecraftCompatIdentity(versionJson));
-    }
-
-    private boolean isKryptonRenderer(@Nullable RendererInterface renderer) {
-        if (renderer == null) return false;
-        String combined = (renderer.getUniqueIdentifier() + " "
-                + renderer.getRendererName() + " "
-                + renderer.getRendererId() + " "
-                + renderer.getRendererLibrary()).toLowerCase(Locale.ROOT);
-        return combined.contains("krypton")
-                || combined.contains("ng_gl4es")
-                || combined.contains("e7b90ed6-e518-4d4e-93dc-5c7133cd5b31");
-    }
-
     @NonNull
     private String buildMinecraftCompatIdentity(@NonNull JSONObject versionJson) {
         return (versionId + " "
@@ -3716,21 +3720,6 @@ public final class JavaLaunchBuilder {
             }
         }
         return best;
-    }
-
-    private boolean isVulkanZinkRenderer(@Nullable RendererInterface renderer) {
-        if (renderer == null) return false;
-        String combined = rendererIdentity(renderer);
-        return combined.contains("vulkan_zink") || combined.contains("vulkan zink")
-                || combined.contains("zink") || combined.contains("osmesa");
-    }
-
-    private boolean shouldEnableModernCacioForRenderer(@Nullable RendererInterface renderer) {
-        // Modern LWJGL3 launches should not be forced through Cacio/CTC here.
-        // Only legacy AWT/LWJGL2 profiles use Cacio above. Forcing modern Mesa/Zink
-        // through Cacio caused the Adreno 740 fallback path to lose LWJGL's OpenGL
-        // context management API.
-        return false;
     }
 
     private boolean isLtwRenderer(@Nullable RendererInterface renderer) {

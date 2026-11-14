@@ -13,7 +13,9 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
 import android.graphics.PixelFormat;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -76,16 +78,17 @@ import ca.dnamobile.droidbridgelauncher.controls.TouchControlsStore;
 import ca.dnamobile.droidbridgelauncher.controls.TouchControlsLayoutData;
 import ca.dnamobile.droidbridgelauncher.game.FloatingGameSettingsOverlayController;
 import ca.dnamobile.droidbridgelauncher.input.GameCursorOverlay;
+import ca.dnamobile.droidbridgelauncher.input.GamepadAction;
 import ca.dnamobile.droidbridgelauncher.input.GamepadMappingDialog;
 import ca.dnamobile.droidbridgelauncher.input.GamepadInputController;
 import ca.dnamobile.droidbridgelauncher.input.GamepadMappingStore;
 import ca.dnamobile.droidbridgelauncher.input.GyroInputController;
 import ca.dnamobile.droidbridgelauncher.runtime.DroidBridgeSdlFpsBridge;
 import ca.dnamobile.droidbridgelauncher.runtime.MinecraftGLSurface;
-import ca.dnamobile.droidbridgelauncher.settings.GameOverlayPreferences;
 import ca.dnamobile.droidbridgelauncher.settings.GameResolutionSettings;
 import ca.dnamobile.droidbridgelauncher.ui.LauncherDialogStyle;
-import dev.horizon.android.HorizonInput;
+import ca.dnamobile.droidbridgelauncher.engine.EngineInput;
+import ca.dnamobile.droidbridgelauncher.engine.EngineWindowLayout;
 
 /**
  * DroidBridge's own controls over the Horizon engine: the touch controls overlay with the
@@ -110,6 +113,8 @@ public final class HorizonControlsHost {
     private static final int REQUEST_GAME_RECORDING_AUDIO_PERMISSION = 0x4842;
 
     private final Activity activity;
+    /** The running engine's input (Horizon's by default). */
+    private final EngineInput input;
     @Nullable private final File gameDirectory;
     /** The Vulkan driver DroidBridge asked the engine to load; null for the system one. */
     @Nullable private final String vulkanDriverName;
@@ -139,6 +144,23 @@ public final class HorizonControlsHost {
     private boolean lastGrabbed;
     /** The engine's own window (NativeActivity): it holds focus, so pointer capture goes here. */
     @Nullable private View engineDecor;
+    /**
+     * Rust Craft: the controls window covers the game's window wherever DroidBridge's display
+     * settings put it (Force Fullscreen off: inside the system bars; Ignore display notch on:
+     * beside the notch), not the whole screen, and the system bars follow Force Fullscreen.
+     * Off (Horizon): the whole screen, bars hidden, as before.
+     */
+    private boolean followEngineWindow;
+    @Nullable private View.OnLayoutChangeListener engineWindowListener;
+    private final int[] engineWindowAt = new int[2];
+    /**
+     * Portrait (Centered Game View): the game's window is a centered rectangle
+     * (EngineWindowLayout), the controls keep the whole screen (touch controls can sit above
+     * and below the game), DroidBridge's game view inside them is placed over the game, and
+     * the rest is black.
+     */
+    private boolean centeredGame;
+    @Nullable private Letterbox letterbox;
     /** The floating cog: a physical mouse still clicks it as an Android button. */
     @Nullable private View settingsButton;
     private long lastPhysicalMouseUptimeMs;
@@ -181,7 +203,7 @@ public final class HorizonControlsHost {
             // Dynamic mouse cursor: the cursor the game's widgets ask for (pointing hand over
             // buttons, not-allowed over disabled ones), the same SDL ids the Java engine's
             // SDL window reports, so GameCursorOverlay draws the player's chosen icons.
-            int shape = HorizonInput.cursorShape();
+            int shape = input.cursorShape();
             if (shape != lastCursorShape) {
                 lastCursorShape = shape;
                 CallbackBridge.onSdlSystemCursorChanged(shape);
@@ -189,7 +211,7 @@ public final class HorizonControlsHost {
                 if (cursor != null) cursor.invalidate();
             }
             if (!driverProblemShown && vulkanDriverName != null
-                    && HorizonInput.vulkanDriverState() == 2) {
+                    && input.vulkanDriverState() == 2) {
                 driverProblemShown = true;
                 Toast.makeText(activity, vulkanDriverName
                         + " did not load; the Rust engine is using the system Vulkan driver.",
@@ -204,6 +226,20 @@ public final class HorizonControlsHost {
             @Nullable File gameDirectory,
             @Nullable String vulkanDriverName
     ) {
+        this(activity, gameDirectory, vulkanDriverName, HorizonEngineInput.INSTANCE);
+    }
+
+    /**
+     * The same controls over another Rust engine's process: {@code input} carries them into
+     * that engine's library (rustcraft uses this from its own activity).
+     */
+    public HorizonControlsHost(
+            @NonNull Activity activity,
+            @Nullable File gameDirectory,
+            @Nullable String vulkanDriverName,
+            @NonNull EngineInput input
+    ) {
+        this.input = input;
         this.activity = activity;
         this.gameDirectory = gameDirectory;
         this.vulkanDriverName = vulkanDriverName;
@@ -220,6 +256,14 @@ public final class HorizonControlsHost {
         // hovered short of the drawn cursor (80% => 0.8x). The engine's own Client resolution
         // setting scales the Rust engine.
         GameResolutionSettings.setRuntimeRenderScaleOverride(100);
+    }
+
+    /**
+     * Keep the controls on the game's own window (see {@link #followEngineWindow}). Call
+     * before {@link #attach()}.
+     */
+    public void setFollowEngineWindow(boolean follow) {
+        followEngineWindow = follow;
     }
 
     /** Adds the controls once the engine's window exists. Call from Activity.onCreate. */
@@ -252,6 +296,12 @@ public final class HorizonControlsHost {
         panel.setBackgroundColor(Color.TRANSPARENT);
         ViewGroup.LayoutParams match = new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+
+        // Centered Game View: black round the game's rectangle (under everything else)
+        Letterbox box = new Letterbox(activity);
+        box.setVisibility(View.GONE);
+        panel.addView(box, match);
+        letterbox = box;
 
         // NativeActivity renders directly into its window swapchain; there is no child
         // SurfaceView to translate. DroidBridge's existing IME viewport controller still owns
@@ -295,7 +345,7 @@ public final class HorizonControlsHost {
         cogParams.setMargins(dp(16), dp(16), dp(16), dp(16));
         panel.addView(cog, cogParams);
         settingsButton = cog;
-        DroidBridgeSdlFpsBridge.setHostFpsSource(HorizonInput::fps);
+        DroidBridgeSdlFpsBridge.setHostFpsSource(input::fps);
         FloatingGameSettingsOverlayController floating =
                 new FloatingGameSettingsOverlayController(activity, cog);
         floating.attach();
@@ -328,21 +378,37 @@ public final class HorizonControlsHost {
             params.layoutInDisplayCutoutMode =
                     WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
         }
-        windowManager.addView(panel, params);
-        keepSystemBarsHidden(panel);
-
         root = panel;
         panelParams = params;
         engineDecor = decor;
         inputSurface = surface;
+        centeredGame = EngineWindowLayout.isCentered(activity);
+        if (centeredGame || followEngineWindow) fitPanel(params, decor);
+        windowManager.addView(panel, params);
+        applySystemBars(panel);
+        // The game's window moves or resizes when the bars, the notch policy, the rotation or
+        // Centered Game View change it: the controls go with it, and their coordinate space
+        // (DroidBridge's game view, over the game) with them.
+        engineWindowListener = (view, l, t, r, b, ol, ot, or, ob) -> followEngineWindowNow();
+        decor.addOnLayoutChangeListener(engineWindowListener);
+        surface.addOnLayoutChangeListener((view, l, t, r, b, ol, ot, or, ob) -> {
+            if (r - l != or - ol || b - t != ob - ot) onPanelResized();
+        });
+
         cursorOverlay = cursor;
         touchOverlay = overlay;
         floatingSettings = floating;
         gameLogOverlay = new HorizonGameLogOverlayController(activity, panel);
         gameLogOverlay.bringToFront();
         floating.bringToFront();
+        // DroidBridge's game view over the game (Centered Game View: its rectangle), and the
+        // touch controls' input mapped into it
+        placeGameView(decor);
+        panel.post(this::followEngineWindowNow);
 
-        CallbackBridge.setHostInputSink(new HorizonInputSink(panel, decor, () -> imeViewportBottomInset));
+        // (the game's coordinates are DroidBridge's game view's: the whole controls window,
+        // or the game's rectangle in Centered Game View)
+        CallbackBridge.setHostInputSink(new HorizonInputSink(surface, decor, () -> imeViewportBottomInset, input));
         panel.post(this::initializePointer);
 
         // Horizon is on the SAME display as the game. Give DroidBridge's keyboard helper
@@ -352,14 +418,40 @@ public final class HorizonControlsHost {
                 () -> setPanelFocusable(true),
                 () -> setPanelFocusable(false));
 
-        HorizonInput.setKeyRepeat(LauncherPreferences.isPhysicalKeyRepeatEnabled(activity));
-        gamepad = new GamepadInputController(panel);
+        input.setKeyRepeat(LauncherPreferences.isPhysicalKeyRepeatEnabled(activity));
+        GamepadInputController controller = new GamepadInputController(panel);
+        // "Show controller input on touch controls": the touch buttons and joystick light up
+        // with the physical controller's mapped actions, as GameActivity does for the Java
+        // engine. The overlay checks the setting itself on every call.
+        controller.setVisualFeedbackListener(new GamepadInputController.VisualFeedbackListener() {
+            @Override
+            public void onResolvedActionStateChanged(@NonNull GamepadAction action, boolean pressed) {
+                TouchControlsOverlay touch = touchOverlay;
+                if (touch != null) touch.setGamepadActionVisualState(action, pressed);
+            }
+
+            @Override
+            public void onLeftStickChanged(float x, float y) {
+                TouchControlsOverlay touch = touchOverlay;
+                if (touch != null) touch.setGamepadLeftStickVisual(x, y);
+            }
+
+            @Override
+            public void onClearVisualFeedback() {
+                TouchControlsOverlay touch = touchOverlay;
+                if (touch != null) touch.clearGamepadVisualFeedback();
+            }
+        });
+        gamepad = controller;
         GyroInputController gyroscope = new GyroInputController(activity);
         gyro = gyroscope;
         gyroscope.refreshFromPreferences();
         lastGrabbed = false;
         Choreographer.getInstance().postFrameCallback(grabPoll);
-        Log.i(TAG, "DroidBridge controls attached over Horizon");
+        // This host runs DroidBridge's controls over any Rust engine (Horizon 26.3 or
+        // rustcraft 1.0), each through its own EngineInput.
+        String engineName = input.getClass().getSimpleName().replace("EngineInput", "");
+        Log.i(TAG, "DroidBridge controls attached over " + engineName);
     }
 
     /**
@@ -524,7 +616,7 @@ public final class HorizonControlsHost {
      * refused), in gameplay and in menus. Captured, Android hides its pointer and keeps it away
      * from the screen edges, which otherwise reveal the status and navigation bars; the mouse's
      * motion and buttons go straight to the engine. In gameplay the motion turns the camera; in
-     * menus the engine moves its cursor with it (HorizonInput.setMenuMouseCapture), and
+     * menus the engine moves its cursor with it (EngineInput.setMenuMouseCapture), and
      * DroidBridge's cursor follows the engine's (followEngineMenuCursor). Android Virtual Mouse
      * also gets menu clicks first, for DroidBridge's own buttons (drainMenuMouseClicks), as in
      * the Java engine. An engine built before that captures in gameplay only; its menus then use
@@ -538,22 +630,22 @@ public final class HorizonControlsHost {
         // report themselves as a mouse, and their players must keep the normal pointer.
         boolean mouseInUse = mouseActive;
         if (mouseInUse != menuCaptureOn && menuCaptureSupported) {
-            menuCaptureSupported = HorizonInput.setMenuMouseCapture(mouseInUse, -1f, -1f);
+            menuCaptureSupported = input.setMenuMouseCapture(mouseInUse, -1f, -1f);
             menuCaptureOn = mouseInUse && menuCaptureSupported;
         }
         // Android Virtual Mouse: menu clicks come here first, for DroidBridge's own buttons.
         boolean clicksToHost = menuCaptureOn && !nativeMouseMode();
         if (clicksToHost != menuClicksToHost) {
-            menuClicksToHost = HorizonInput.setMenuMouseClicksToHost(clicksToHost) && clicksToHost;
+            menuClicksToHost = input.setMenuMouseClicksToHost(clicksToHost) && clicksToHost;
             if (!menuClicksToHost) endVirtualMouseUiPress();
         }
         if (menuCaptureOn && captureGrabbed && !lastGrabbed) {
             // The game released the pointer and put its cursor in the middle; so does the
             // engine's menu cursor, and DroidBridge's follows.
-            FrameLayout panel = root;
-            if (panel != null) {
-                CallbackBridge.mouseX = panel.getWidth() / 2f;
-                CallbackBridge.mouseY = panel.getHeight() / 2f;
+            View game = gameView();
+            if (game != null) {
+                CallbackBridge.mouseX = game.getWidth() / 2f;
+                CallbackBridge.mouseY = game.getHeight() / 2f;
             }
         }
         captureGrabbed = lastGrabbed;
@@ -573,7 +665,7 @@ public final class HorizonControlsHost {
             lastCaptureRequestUptimeMs = now;
             if (!lastGrabbed && menuCaptureOn) {
                 // The engine's menu cursor starts where DroidBridge's cursor is now.
-                HorizonInput.setMenuMouseCapture(true,
+                input.setMenuMouseCapture(true,
                         CallbackBridge.mouseX + controlsToEngineX(),
                         CallbackBridge.mouseY + controlsToEngineY());
             }
@@ -622,11 +714,11 @@ public final class HorizonControlsHost {
         menu = validScale(menu);
         if (camera != engineMouseScale) {
             engineMouseScale = camera;
-            HorizonInput.setMouseScale(camera);
+            input.setMouseScale(camera);
         }
         if (menu != engineMenuMouseScale) {
             engineMenuMouseScale = menu;
-            HorizonInput.setMenuMouseScale(menu);
+            input.setMenuMouseScale(menu);
         }
     }
 
@@ -636,7 +728,7 @@ public final class HorizonControlsHost {
 
     /** DroidBridge's cursor (CallbackBridge, this window's pixels) at the engine's menu cursor. */
     private void followEngineMenuCursor() {
-        long packed = HorizonInput.menuCursor();
+        long packed = input.menuCursor();
         if (packed < 0L) return;
         float x = (float) (int) (packed >>> 32) - controlsToEngineX();
         float y = (float) (int) (packed & 0xFFFFFFFFL) - controlsToEngineY();
@@ -658,11 +750,11 @@ public final class HorizonControlsHost {
         if (!menuClicksToHost) return;
         int packed;
         int guard = 0;
-        while (guard++ < 64 && (packed = HorizonInput.takeMenuMouseButton()) >= 0) {
+        while (guard++ < 64 && (packed = input.takeMenuMouseButton()) >= 0) {
             int button = packed >> 1;
             boolean pressed = (packed & 1) != 0;
             if (button == 0 && routeVirtualMouseClick(pressed)) continue;
-            HorizonInput.mouseButton(button, pressed);
+            input.mouseButton(button, pressed);
         }
     }
 
@@ -721,11 +813,11 @@ public final class HorizonControlsHost {
     @NonNull
     private float[] cursorOnScreen() {
         float[] at = {CallbackBridge.mouseX, CallbackBridge.mouseY};
-        FrameLayout panel = root;
-        if (panel == null) return at;
+        View game = gameView();
+        if (game == null) return at;
         try {
             int[] origin = new int[2];
-            panel.getLocationOnScreen(origin);
+            game.getLocationOnScreen(origin);
             at[0] += origin[0];
             at[1] += origin[1];
         } catch (Throwable ignored) {
@@ -733,7 +825,7 @@ public final class HorizonControlsHost {
         return at;
     }
 
-    /** This window's origin in the engine window's pixels (both normally cover the screen). */
+    /** The game view's origin in the engine window's pixels (both normally cover the screen). */
     private float controlsToEngineX() {
         return originOffset(0);
     }
@@ -743,13 +835,13 @@ public final class HorizonControlsHost {
     }
 
     private float originOffset(int axis) {
-        FrameLayout panel = root;
+        View game = gameView();
         View decor = engineDecor;
-        if (panel == null || decor == null) return 0f;
+        if (game == null || decor == null) return 0f;
         try {
             int[] panelAt = new int[2];
             int[] decorAt = new int[2];
-            panel.getLocationOnScreen(panelAt);
+            game.getLocationOnScreen(panelAt);
             decor.getLocationOnScreen(decorAt);
             return panelAt[axis] - decorAt[axis];
         } catch (Throwable ignored) {
@@ -764,10 +856,11 @@ public final class HorizonControlsHost {
 
     private void initializePointer(int attempt) {
         FrameLayout panel = root;
-        if (panel == null || destroyed) return;
+        View game = gameView();
+        if (panel == null || game == null || destroyed) return;
 
-        int width = panel.getWidth();
-        int height = panel.getHeight();
+        int width = game.getWidth();
+        int height = game.getHeight();
         if (width <= 1 || height <= 1) {
             // WindowManager can attach the overlay before its first real layout pass.
             // Publishing a fake 1x1 coordinate space here initializes both launcher
@@ -811,10 +904,10 @@ public final class HorizonControlsHost {
     private void setEngineImeViewportBottomInset(int bottomInsetPx) {
         imeViewportBottomInset = Math.max(0, bottomInsetPx);
         try {
-            HorizonInput.setImeViewportBottomInset(imeViewportBottomInset);
-            Log.d(TAG, "Horizon IME presentation inset=" + imeViewportBottomInset);
+            input.setImeViewportBottomInset(imeViewportBottomInset);
+            Log.d(TAG, "Engine IME presentation inset=" + imeViewportBottomInset);
         } catch (Throwable throwable) {
-            Log.w(TAG, "Could not update Horizon IME viewport inset", throwable);
+            Log.w(TAG, "Could not update the engine IME viewport inset", throwable);
         }
     }
 
@@ -827,7 +920,7 @@ public final class HorizonControlsHost {
     private boolean syncGrabStateFromEngine() {
         boolean grabbed = lastGrabbed;
         try {
-            grabbed = HorizonInput.isGrabbed();
+            grabbed = input.isGrabbed();
         } catch (Throwable ignored) {
         }
         if (grabbed != lastGrabbed) {
@@ -849,8 +942,12 @@ public final class HorizonControlsHost {
         // appear. While the Android IME owns focus that cursor is not useful and makes it look
         // like the controller changed modes. GameCursorOverlay draws into its parent's overlay,
         // so suppress its drawable explicitly rather than toggling the View's visibility.
+        // A keyboard opened by clicking a text field in a menu (the cursor was the text I-beam)
+        // keeps the cursor: the player is still using it there, and it only came back with
+        // Back before.
+        boolean fromTextField = focusable && CallbackBridge.isTextInputCursor();
         GameCursorOverlay cursor = cursorOverlay;
-        if (cursor != null) cursor.setTemporarilySuppressed(true);
+        if (cursor != null) cursor.setTemporarilySuppressed(!fromTextField);
 
         FrameLayout panel = root;
         WindowManager.LayoutParams params = panelParams;
@@ -872,8 +969,8 @@ public final class HorizonControlsHost {
 
         // While this window owns focus it also decides the system bars; keep them hidden like
         // the game so the navigation bar never appears over (and resizes) the game.
-        keepSystemBarsHidden(panel);
-        panel.post(() -> keepSystemBarsHidden(panel));
+        applySystemBars(panel);
+        panel.post(() -> applySystemBars(panel));
 
         if (!focusable) {
             // Rust may re-grab the pointer while Android is still finishing the IME hide
@@ -889,6 +986,185 @@ public final class HorizonControlsHost {
                 if (currentCursor != null) currentCursor.setTemporarilySuppressed(false);
             }, 120L);
         }
+    }
+
+    /**
+     * The system bars as the game's window has them: hidden, unless the controls follow a
+     * game window that shows them (Force Fullscreen off), which then decides them itself.
+     */
+    private void applySystemBars(@NonNull View panel) {
+        if (followEngineWindow && !LauncherPreferences.isForceFullscreenMode(activity)) return;
+        keepSystemBarsHidden(panel);
+    }
+
+    /**
+     * The controls window placed exactly over the game's window (its place on the screen and
+     * its size). False if nothing changed, or the game's window isn't laid out yet.
+     */
+    private boolean fitToEngineWindow(@NonNull WindowManager.LayoutParams params, @NonNull View decor) {
+        int width = decor.getWidth();
+        int height = decor.getHeight();
+        if (width <= 1 || height <= 1) return false;
+        try {
+            decor.getLocationOnScreen(engineWindowAt);
+        } catch (Throwable ignored) {
+            return false;
+        }
+        int gravity = Gravity.TOP | Gravity.LEFT;
+        if (params.gravity == gravity && params.x == engineWindowAt[0] && params.y == engineWindowAt[1]
+                && params.width == width && params.height == height) {
+            return false;
+        }
+        params.gravity = gravity;
+        params.x = engineWindowAt[0];
+        params.y = engineWindowAt[1];
+        params.width = width;
+        params.height = height;
+        return true;
+    }
+
+    /**
+     * Moves the controls onto the game's window again (it moved or was resized, or Centered
+     * Game View was turned on or off, as picture-in-picture does).
+     */
+    public void followEngineWindowNow() {
+        FrameLayout panel = root;
+        WindowManager.LayoutParams params = panelParams;
+        View decor = engineDecor;
+        if (destroyed || panel == null || params == null || decor == null) return;
+        boolean wasCentered = centeredGame;
+        centeredGame = EngineWindowLayout.isCentered(activity);
+        if ((centeredGame || followEngineWindow || wasCentered) && fitPanel(params, decor)) {
+            try {
+                windowManager.updateViewLayout(panel, params);
+            } catch (Throwable throwable) {
+                Log.w(TAG, "Could not move the controls onto the game's window", throwable);
+            }
+        }
+        placeGameView(decor);
+    }
+
+    /**
+     * The controls window: the whole screen for Centered Game View (and for Horizon), else
+     * over the game's window (Rust Craft). False if nothing changed.
+     */
+    private boolean fitPanel(@NonNull WindowManager.LayoutParams params, @NonNull View decor) {
+        if (followEngineWindow && !centeredGame) return fitToEngineWindow(params, decor);
+        int gravity = Gravity.TOP | Gravity.LEFT;
+        int match = WindowManager.LayoutParams.MATCH_PARENT;
+        if (params.gravity == gravity && params.x == 0 && params.y == 0
+                && params.width == match && params.height == match) {
+            return false;
+        }
+        params.gravity = gravity;
+        params.x = 0;
+        params.y = 0;
+        params.width = match;
+        params.height = match;
+        return true;
+    }
+
+    /**
+     * DroidBridge's game view (its touch camera, menu clicks, cursor and the controls' input
+     * space): the whole controls window, or for Centered Game View exactly over the game's
+     * centered window, with black round it.
+     */
+    private void placeGameView(@NonNull View decor) {
+        MinecraftGLSurface surface = inputSurface;
+        if (surface == null || !(surface.getLayoutParams() instanceof FrameLayout.LayoutParams)) return;
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) surface.getLayoutParams();
+        int width = ViewGroup.LayoutParams.MATCH_PARENT;
+        int height = ViewGroup.LayoutParams.MATCH_PARENT;
+        int left = 0;
+        int top = 0;
+        boolean centered = centeredGame && decor.getWidth() > 1 && decor.getHeight() > 1;
+        if (centered) {
+            try {
+                decor.getLocationOnScreen(engineWindowAt);
+            } catch (Throwable ignored) {
+                engineWindowAt[0] = 0;
+                engineWindowAt[1] = 0;
+            }
+            // (the controls window is then the whole screen, from its top left corner)
+            width = decor.getWidth();
+            height = decor.getHeight();
+            left = engineWindowAt[0];
+            top = engineWindowAt[1];
+        }
+        int gravity = Gravity.TOP | Gravity.LEFT;
+        if (lp.width != width || lp.height != height || lp.leftMargin != left || lp.topMargin != top
+                || lp.rightMargin != 0 || lp.bottomMargin != 0 || lp.gravity != gravity) {
+            lp.width = width;
+            lp.height = height;
+            lp.gravity = gravity;
+            lp.setMargins(left, top, 0, 0);
+            surface.setLayoutParams(lp);
+        }
+        TouchControlsOverlay overlay = touchOverlay;
+        if (overlay != null) overlay.setInputViewportTarget(centered ? surface : null);
+        Letterbox box = letterbox;
+        if (box != null) {
+            box.setHole(left, top, left + Math.max(0, width), top + Math.max(0, height));
+            box.setVisibility(centered ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    /** The view the game's input coordinates are in (DroidBridge's game view). */
+    @Nullable
+    private View gameView() {
+        MinecraftGLSurface surface = inputSurface;
+        return surface != null ? surface : root;
+    }
+
+    /** Black everywhere but the game's rectangle (Centered Game View). */
+    private static final class Letterbox extends View {
+        private final Paint black = new Paint();
+        private int holeLeft;
+        private int holeTop;
+        private int holeRight;
+        private int holeBottom;
+
+        Letterbox(@NonNull Context context) {
+            super(context);
+            black.setColor(Color.BLACK);
+            setWillNotDraw(false);
+        }
+
+        void setHole(int left, int top, int right, int bottom) {
+            if (left == holeLeft && top == holeTop && right == holeRight && bottom == holeBottom) return;
+            holeLeft = left;
+            holeTop = top;
+            holeRight = right;
+            holeBottom = bottom;
+            invalidate();
+        }
+
+        @Override
+        protected void onDraw(@NonNull Canvas canvas) {
+            int w = getWidth();
+            int h = getHeight();
+            canvas.drawRect(0, 0, w, Math.max(0, holeTop), black);
+            canvas.drawRect(0, Math.min(h, holeBottom), w, h, black);
+            canvas.drawRect(0, holeTop, Math.max(0, holeLeft), holeBottom, black);
+            canvas.drawRect(Math.min(w, holeRight), holeTop, w, holeBottom, black);
+        }
+    }
+
+    /** The game view has a new size: it is the coordinate space for the game's input. */
+    private void onPanelResized() {
+        View game = gameView();
+        if (game == null || destroyed) return;
+        int width = game.getWidth();
+        int height = game.getHeight();
+        if (width <= 1 || height <= 1) return;
+        if (width == CallbackBridge.windowWidth && height == CallbackBridge.windowHeight) return;
+        CallbackBridge.windowWidth = width;
+        CallbackBridge.windowHeight = height;
+        CallbackBridge.physicalWidth = width;
+        CallbackBridge.physicalHeight = height;
+        CallbackBridge.mouseX = Math.max(0f, Math.min(CallbackBridge.mouseX, width - 1f));
+        CallbackBridge.mouseY = Math.max(0f, Math.min(CallbackBridge.mouseY, height - 1f));
+        CallbackBridge.setCursorPosSilently(CallbackBridge.mouseX, CallbackBridge.mouseY);
     }
 
     /** Immersive mode for the controls window, matching the game's own window. */
@@ -1356,7 +1632,7 @@ public final class HorizonControlsHost {
     /** What the engine is drawing with: DroidBridge selection plus wgpu's real adapter/backend. */
     @NonNull
     private String graphicsSummary() {
-        int renderer = HorizonInput.rendererState();
+        int renderer = input.rendererState();
         String mode;
         switch (renderer) {
             case 2: mode = "Vulkan (GPU batching)"; break;
@@ -1368,7 +1644,7 @@ public final class HorizonControlsHost {
 
         String selectedDriver = "";
         if (renderer == 1 || renderer == 2) {
-            int driver = HorizonInput.vulkanDriverState();
+            int driver = input.vulkanDriverState();
             if (driver == 1 && vulkanDriverName != null && !vulkanDriverName.trim().isEmpty()) {
                 selectedDriver = vulkanDriverName.trim();
             } else if (driver == 2 && vulkanDriverName != null && !vulkanDriverName.trim().isEmpty()) {
@@ -1378,7 +1654,7 @@ public final class HorizonControlsHost {
             }
         }
 
-        String actual = HorizonInput.graphicsInfo();
+        String actual = input.graphicsInfo();
         actual = actual == null ? "" : actual.trim();
 
         StringBuilder summary = new StringBuilder(mode);
@@ -1703,6 +1979,7 @@ public final class HorizonControlsHost {
     /** After the controls editor or mapper: pick up the saved layout and mappings. */
     public void onResume() {
         if (destroyed) return;
+        followEngineWindowNow();
         TouchControlsOverlay overlay = touchOverlay;
         if (overlay != null) {
             overlay.loadSelectedLayout();
@@ -1717,13 +1994,34 @@ public final class HorizonControlsHost {
         GyroInputController gyroscope = gyro;
         if (gyroscope != null) gyroscope.refreshFromPreferences();
         lastMouseScaleCheckUptimeMs = 0L;
-        HorizonInput.setKeyRepeat(LauncherPreferences.isPhysicalKeyRepeatEnabled(activity));
+        input.setKeyRepeat(LauncherPreferences.isPhysicalKeyRepeatEnabled(activity));
         FloatingGameSettingsOverlayController floating = floatingSettings;
         if (floating != null) {
             // Picks up cog/FPS settings changed in the launcher, and restarts the FPS poll.
             floating.resume();
             floating.bringToFront();
         }
+    }
+
+    /**
+     * Picture-in-picture (Rust Craft's activity): the controls' window is hidden while the
+     * game is a small floating window (Android sends it no touches then) and shown again,
+     * fitted to the game's window, when it is full size.
+     */
+    public void setPictureInPicture(boolean on) {
+        if (destroyed) return;
+        FrameLayout panel = root;
+        if (panel != null) panel.setVisibility(on ? View.GONE : View.VISIBLE);
+        FloatingGameSettingsOverlayController floating = floatingSettings;
+        if (floating != null) {
+            if (on) {
+                floating.pause();
+            } else {
+                floating.resume();
+                floating.bringToFront();
+            }
+        }
+        if (!on) followEngineWindowNow();
     }
 
     /** Stops the FPS poll while the game is in the background. */
@@ -1781,7 +2079,7 @@ public final class HorizonControlsHost {
         GameImeViewportController.unregisterImeViewportTarget(imeViewportTarget);
         imeViewportBottomInset = 0;
         try {
-            HorizonInput.setImeViewportBottomInset(0);
+            input.setImeViewportBottomInset(0);
         } catch (Throwable ignored) {
         }
         FrameLayout panel = root;
@@ -1800,6 +2098,14 @@ public final class HorizonControlsHost {
         }
         View decor = engineDecor;
         engineDecor = null;
+        View.OnLayoutChangeListener windowListener = engineWindowListener;
+        engineWindowListener = null;
+        if (decor != null && windowListener != null) {
+            try {
+                decor.removeOnLayoutChangeListener(windowListener);
+            } catch (Throwable ignored) {
+            }
+        }
         settingsButton = null;
         if (decor != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             try {
@@ -1810,5 +2116,6 @@ public final class HorizonControlsHost {
         touchOverlay = null;
         cursorOverlay = null;
         inputSurface = null;
+        letterbox = null;
     }
 }

@@ -510,6 +510,24 @@ public final class TouchKeyboardHelper {
         return activeInput != null;
     }
 
+    /**
+     * {@link #isKeyboardShowing()}, but first drops an editor whose Android keyboard is gone.
+     * A same-display session (the Rust engine's overlay, the Java engine's surface) did not
+     * hear when Android hid the keyboard by itself (tapping outside it, the keyboard's own
+     * hide key): the hidden editor stayed "showing", so the next tap on a text field opened
+     * nothing until the keyboard button reopened it.
+     */
+    public static boolean isKeyboardReallyShowing() {
+        NativeKeyboardInputView input = activeInput;
+        if (input == null) return false;
+        if (input.isImeGoneBySystem()) {
+            Logging.i(TAG, "Android IME was hidden without DroidBridge; closing the stale editor.");
+            notifyImeHiddenBySystem();
+            return activeInput != null;
+        }
+        return true;
+    }
+
     static boolean isChatKeyboardShowing() {
         NativeKeyboardInputView input = activeInput;
         return input != null && input.submitsEnter();
@@ -872,6 +890,8 @@ public final class TouchKeyboardHelper {
         private boolean closing;
         private boolean internalChange;
         private boolean imeWasVisible;
+        /** When openKeyboard() asked for the IME, to give it time to appear. */
+        private long openedUptimeMs;
         @Nullable private ViewTreeObserver.OnWindowFocusChangeListener windowFocusListener;
 
         NativeKeyboardInputView(
@@ -907,7 +927,9 @@ public final class TouchKeyboardHelper {
                     | EditorInfo.IME_FLAG_NO_EXTRACT_UI
                     | EditorInfo.IME_FLAG_NO_FULLSCREEN);
 
-            if (dualScreenSession && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Hear when Android hides the keyboard by itself, on any display: same-display
+            // sessions need it too, or the editor stays "showing" after the keyboard is gone.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 setOnApplyWindowInsetsListener((view, insets) -> {
                     boolean imeVisible = insets.isVisible(WindowInsets.Type.ime());
                     if (imeVisible) {
@@ -964,6 +986,21 @@ public final class TouchKeyboardHelper {
             return submitSendsEnter;
         }
 
+        /**
+         * True when Android's keyboard is not up for this editor although DroidBridge still
+         * holds it open: it was shown and is now hidden, or it never came up within 3 seconds.
+         * Unknown before Android 11 (false then).
+         */
+        boolean isImeGoneBySystem() {
+            if (closing || Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false;
+            if (!isAttachedToWindow()) return true;
+            WindowInsets insets = getRootWindowInsets();
+            if (insets == null) return false;
+            if (insets.isVisible(WindowInsets.Type.ime())) return false;
+            long age = SystemClock.uptimeMillis() - openedUptimeMs;
+            return imeWasVisible ? age > 250L : age > 3000L;
+        }
+
         boolean isDualScreenSession() {
             return dualScreenSession;
         }
@@ -976,6 +1013,7 @@ public final class TouchKeyboardHelper {
         }
 
         void openKeyboard() {
+            openedUptimeMs = SystemClock.uptimeMillis();
             setVisibility(VISIBLE);
             setEnabled(true);
             requestFocusFromTouch();

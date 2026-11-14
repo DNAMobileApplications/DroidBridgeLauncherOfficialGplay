@@ -15,7 +15,6 @@ package ca.dnamobile.droidbridgelauncher;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
-import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
@@ -41,7 +40,6 @@ import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AlertDialog;
-import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.widget.NestedScrollView;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -1308,59 +1306,6 @@ public final class ContentBrowserActivity extends ControllerNavigationActivity {
             Collections.sort(hits, (left, right) -> Long.compare(right.downloads, left.downloads));
         }
 
-    }
-
-    private void pinFeaturedModpacksFirst(@NonNull ArrayList<ModrinthProject> hits) {
-        if (hits.isEmpty()) return;
-
-        ModrinthProject optiMobile = null;
-        ModrinthProject vulkanDroid = null;
-        for (int i = hits.size() - 1; i >= 0; i--) {
-            ModrinthProject project = hits.get(i);
-            if (isOptiMobileModpack(project)) {
-                if (optiMobile == null) optiMobile = project;
-                hits.remove(i);
-            } else if (isVulkanDroidModpack(project)) {
-                if (vulkanDroid == null) vulkanDroid = project;
-                hits.remove(i);
-            }
-        }
-
-        int insertIndex = 0;
-        if (optiMobile != null) {
-            hits.add(insertIndex++, optiMobile);
-        }
-        if (vulkanDroid != null) {
-            int vulkanIndex = optiMobile != null
-                    ? insertIndex
-                    : Math.min(1, hits.size());
-            hits.add(vulkanIndex, vulkanDroid);
-        }
-    }
-
-    private boolean isOptiMobileModpack(@NonNull ModrinthProject project) {
-        String title = normalizeProjectIdentity(project.title);
-        String slug = normalizeProjectIdentity(project.slug);
-        String id = project.projectId == null ? "" : project.projectId.trim();
-
-        if (project.source == ModManagerSource.CURSEFORGE) {
-            return id.equals("1456510")
-                    || id.equals("1385364")
-                    || slug.equals("optimobile-fabric")
-                    || slug.endsWith("/optimobile-fabric")
-                    || slug.equals("optimobile-forge")
-                    || slug.endsWith("/optimobile-forge")
-                    || title.equals("optimobile fabric")
-                    || title.equals("optimobile forge");
-        }
-
-        return title.equals("optimobile")
-                || title.equals("optimobile fabric")
-                || title.equals("optimobile forge")
-                || slug.equals("optimobile")
-                || slug.equals("optimobile-fabric")
-                || slug.equals("optimobile-forge")
-                || id.equalsIgnoreCase("optimobile");
     }
 
     @NonNull
@@ -2803,27 +2748,6 @@ public final class ContentBrowserActivity extends ControllerNavigationActivity {
         }
         if (values.size() > count) builder.append(" +").append(values.size() - count);
         return builder.toString();
-    }
-
-    private int resolveThemeColor(int attr, int fallback) {
-        TypedValue value = new TypedValue();
-        if (!getTheme().resolveAttribute(attr, value, true)) return fallback;
-        if (value.resourceId != 0) {
-            try {
-                return getResources().getColor(value.resourceId);
-            } catch (Throwable ignored) {
-                return fallback;
-            }
-        }
-        return value.data;
-    }
-
-    private int resolveSelectableItemBackground() {
-        TypedValue value = new TypedValue();
-        if (getTheme().resolveAttribute(android.R.attr.selectableItemBackground, value, true)) {
-            return value.resourceId;
-        }
-        return 0;
     }
 
     private interface ModpackMinecraftVersionClickListener {

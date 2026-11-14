@@ -205,8 +205,8 @@ def apkFileSafeValue = { Object value, String fallback ->
     return safeValue.isEmpty() ? fallback : safeValue
 }
 
-def launcherVersionCode = 131
-def launcherVersionName = '0.11.04'
+def launcherVersionCode = 138
+def launcherVersionName = '0.11.14'
 def launcherVersionNameForFile = apkFileSafeValue(launcherVersionName, 'unknown')
 def launcherArchiveName = "DroidBridge-Launcher-v${launcherVersionNameForFile}-build${launcherVersionCode}"
 
@@ -274,17 +274,19 @@ gradle.taskGraph.whenReady { taskGraph ->
 // Mojang on the device.
 def horizonAbi = 'arm64-v8a'
 
-// Building the engine with the app: when the Horizon source is next to this project
-// (StudioProjects/horizon-engine, or HORIZON_ENGINE_SOURCE), every app build first runs its
-// tools/android_build.py --host-libs. Cargo rebuilds only what changed (about a second when
-// nothing did), so Run in Android Studio picks up Rust edits with no PowerShell step.
-// Debug builds use Horizon's quick "fast" profile; release builds (bundleRelease, ...) use
-// the full "release" profile. HORIZON_AUTO_BUILD=false turns this off.
+// The app build does NOT build the engine: build it yourself when you change Horizon, with
+// build-horizon.bat in this project's folder (it runs the Horizon source's
+// tools/android_build.py and copies the result into horizon-engine-dist/, as for rustcraft),
+// and every app build just bundles that copy.
+// HORIZON_AUTO_BUILD=true (local.properties) brings back building it with every app build
+// from the Horizon source next to this project (StudioProjects/horizon-engine, or
+// HORIZON_ENGINE_SOURCE): debug builds with its "fast" profile, release builds (bundleRelease,
+// ...) with "release".
 def horizonSourceSetting = privateValue('HORIZON_ENGINE_SOURCE', '').toString().trim()
 def horizonSourceRoot = isBlankValue(horizonSourceSetting)
         ? new File(rootProject.projectDir.parentFile, 'horizon-engine')
         : new File(horizonSourceSetting)
-def horizonAutoBuild = !'false'.equalsIgnoreCase(privateValue('HORIZON_AUTO_BUILD', 'true').toString().trim()) &&
+def horizonAutoBuild = 'true'.equalsIgnoreCase(privateValue('HORIZON_AUTO_BUILD', 'false').toString().trim()) &&
         new File(horizonSourceRoot, 'tools/android_build.py').isFile() &&
         new File(horizonSourceRoot, 'Cargo.toml').isFile()
 def horizonReleaseBuild = gradle.startParameter.taskNames.any { it.toLowerCase(java.util.Locale.US).contains('release') }
@@ -293,8 +295,9 @@ def horizonBuildProfile = isBlankValue(horizonProfileSetting)
         ? (horizonReleaseBuild ? 'release' : 'fast')
         : horizonProfileSetting
 
-// Where to look for an already built engine, first match wins: the auto-built source above,
-// HORIZON_ANDROID_OUTPUT, horizon-engine-dist/, then StudioProjects/horizon-engine's output.
+// Where to look for an already built engine, first match wins: the auto-built source above
+// (only with HORIZON_AUTO_BUILD=true), HORIZON_ANDROID_OUTPUT, horizon-engine-dist/, then
+// StudioProjects/horizon-engine's own output (.local/android, from a manual build there).
 def horizonOutputSetting = privateValue('HORIZON_ANDROID_OUTPUT', '').toString().trim()
 def horizonCandidates = []
 if (horizonAutoBuild) {
@@ -338,6 +341,84 @@ if (horizonAutoBuild) {
     }
 }
 
+// Rust Craft engine (Minecraft Java rewritten in Rust), offered per instance next to the Java
+// engine. It moves forward in title updates, each its own game and its own library, bundled side
+// by side: TU1 (vanilla 1.0) is librustcraft_android.so, TU2 (vanilla 1.1) librustcraft_tu2.so,
+// and so on; each has its assets/rustcraft/engine*.txt beside it (engine.txt for TU1,
+// engine-tu<N>.txt after). RustcraftEngine starts the one an instance's Minecraft version needs.
+// Optional like Horizon: with no library the launcher builds with the Java engine only and the
+// Rust Craft activities are disabled in the manifest. The libraries hold no Minecraft files: each
+// reads its textures from that version's own client jar on the device.
+//
+// Supply them by either:
+//   copying them into <project root>/rustcraft-engine-dist/ (what rustcraft's
+//       "Build DroidBridge SO.bat" does: jniLibs/arm64-v8a/librustcraft_*.so and
+//       assets/rustcraft/), each title update's .bat writing its own library and keeping the others
+//   RUSTCRAFT_ANDROID_OUTPUT=C:/path/to/jniLibs   (a folder holding arm64-v8a/librustcraft_*.so;
+//       its assets are looked for in the folder beside it, ../assets)
+//   RUSTCRAFT_AUTO_BUILD=true with RUSTCRAFT_SOURCE=C:/path/to/rustcraft (local.properties): every
+//       app build first runs cargo ndk on crates/rc-android there. Off by default: it builds only
+//       that folder's title update and would bundle it as TU1's library, so with title updates
+//       side by side use the .bat instead.
+def rustcraftAbi = 'arm64-v8a'
+def rustcraftSourceSetting = privateValue('RUSTCRAFT_SOURCE', '').toString().trim()
+def rustcraftSourceRoot = isBlankValue(rustcraftSourceSetting)
+        ? new File(rootProject.projectDir.parentFile, 'rustcraft')
+        : new File(rustcraftSourceSetting)
+def rustcraftCrateDir = new File(rustcraftSourceRoot, 'crates/rc-android')
+def rustcraftAutoBuild = 'true'.equalsIgnoreCase(privateValue('RUSTCRAFT_AUTO_BUILD', 'false').toString().trim()) &&
+        new File(rustcraftCrateDir, 'Cargo.toml').isFile()
+def rustcraftOutputSetting = privateValue('RUSTCRAFT_ANDROID_OUTPUT', '').toString().trim()
+// Every title update's library: TU1's librustcraft_android.so and librustcraft_tu<N>.so.
+def rustcraftLibraryNames = ['librustcraft_android.so', 'librustcraft_tu*.so']
+def rustcraftLibrariesIn = { File jni ->
+    def dir = new File(jni, rustcraftAbi)
+    def files = dir.isDirectory() ? (dir.listFiles() ?: []) : []
+    files.findAll { it.isFile() && (it.name == 'librustcraft_android.so' || it.name ==~ /librustcraft_tu\d+\.so/) }
+            .collect { it.name }
+            .sort()
+}
+def rustcraftCandidates = []
+if (rustcraftAutoBuild) {
+    rustcraftCandidates << [label: 'built from ' + rustcraftSourceRoot.name, jni: new File(rustcraftCrateDir, 'jniLibs'), assets: new File(rustcraftCrateDir, 'assets')]
+}
+if (!isBlankValue(rustcraftOutputSetting)) {
+    def output = new File(rustcraftOutputSetting)
+    rustcraftCandidates << [label: 'RUSTCRAFT_ANDROID_OUTPUT', jni: output, assets: new File(output.parentFile ?: output, 'assets')]
+}
+rustcraftCandidates << [label: 'rustcraft-engine-dist', jni: rootProject.file('rustcraft-engine-dist/jniLibs'), assets: rootProject.file('rustcraft-engine-dist/assets')]
+def rustcraftFound = rustcraftAutoBuild ? rustcraftCandidates[0] : rustcraftCandidates.find {
+    !rustcraftLibrariesIn(it.jni).isEmpty()
+}
+def rustcraftSourceJniDir = new File((rustcraftFound ?: rustcraftCandidates[0]).jni, rustcraftAbi)
+def rustcraftSourceAssetsDir = (rustcraftFound ?: rustcraftCandidates[0]).assets
+def rustcraftEngineBundled = rustcraftFound != null
+def rustcraftStageDir = file("$buildDir/generated/rustcraftStage")
+def rustcraftReleaseBuild = gradle.startParameter.taskNames.any { it.toLowerCase(java.util.Locale.US).contains('release') }
+
+if (rustcraftAutoBuild) {
+    logger.lifecycle("DroidBridge: Rust Craft engine builds with the app from ${rustcraftCrateDir} (RUSTCRAFT_AUTO_BUILD=true: only that folder's title update, as librustcraft_android.so).")
+} else if (rustcraftEngineBundled) {
+    logger.lifecycle("DroidBridge: Rust Craft title updates found (${rustcraftFound.label}) at ${rustcraftSourceJniDir}: ${rustcraftLibrariesIn(rustcraftFound.jni).join(', ')}; bundling them.")
+} else {
+    logger.lifecycle('DroidBridge: Rust Craft engine not found; its instances use the Java engine only. Looked for librustcraft_android.so / librustcraft_tu<N>.so in:')
+    rustcraftCandidates.each { candidate ->
+        logger.lifecycle("  [${candidate.label}] ${new File(candidate.jni, rustcraftAbi)}")
+    }
+}
+
+// Java mod import for Horizon (Rust engine) instances: a Fabric/Forge/NeoForge jar a player
+// imports is matched to DroidBridge's own Rust-engine version of it (the sandboxed .hmod files in
+// horizon-mod-equivalents/, built by build-droidbridge-mods.bat), or its assets and data are
+// carried over as a content mod. Kept out of Google Play builds: on in debug builds, and in other
+// builds only with JAVA_MOD_IMPORT=true in local.properties.
+def javaModImportAll = 'true'.equalsIgnoreCase(privateValue('JAVA_MOD_IMPORT', 'false').toString().trim())
+def horizonEquivalentsSource = rootProject.file('horizon-mod-equivalents')
+def horizonEquivalentsStageDir = file("$buildDir/generated/horizonEquivalents")
+if (javaModImportAll) {
+    logger.lifecycle('DroidBridge: Java mod import is on for every build (JAVA_MOD_IMPORT=true): keep it off for Google Play builds.')
+}
+
 android {
     namespace launcherPackage
     compileSdk 36
@@ -362,7 +443,8 @@ android {
 
         manifestPlaceholders = [
                 appAuthRedirectScheme: redirectSchemeFrom(microsoftRedirectUri),
-                horizonEngineEnabled : horizonEngineBundled.toString()
+                horizonEngineEnabled : horizonEngineBundled.toString(),
+                rustcraftEngineEnabled: rustcraftEngineBundled.toString()
         ]
 
         buildConfigField 'String', 'MICROSOFT_CLIENT_ID', buildConfigString(microsoftClientId)
@@ -376,6 +458,8 @@ android {
         buildConfigField 'String', 'DROIDBRIDGE_ENTITLEMENT_ENDPOINT', buildConfigString(droidBridgeEntitlementEndpoint)
         buildConfigField 'String', 'DROIDBRIDGE_ENTITLEMENT_PUBLIC_KEY_BASE64', buildConfigString(droidBridgeEntitlementPublicKeyBase64)
         buildConfigField 'boolean', 'HORIZON_ENGINE_BUNDLED', horizonEngineBundled.toString()
+        buildConfigField 'boolean', 'RUSTCRAFT_ENGINE_BUNDLED', rustcraftEngineBundled.toString()
+        buildConfigField 'boolean', 'JAVA_MOD_IMPORT', javaModImportAll.toString()
 
         ndk {
             abiFilters 'arm64-v8a'
@@ -406,6 +490,8 @@ android {
             buildConfigField 'boolean', 'HARDENED_BUILD', 'false'
             buildConfigField 'boolean', 'ALLOW_OFFLINE_PROFILE_AUTH', 'false'
             buildConfigField 'boolean', 'REQUIRE_PLAY_INTEGRITY_FOR_ENTITLEMENT', 'false'
+            // Java mod import (see javaModImportAll above): always on for testing.
+            buildConfigField 'boolean', 'JAVA_MOD_IMPORT', 'true'
         }
 
         obfuscatedDebug {
@@ -483,6 +569,25 @@ android {
                 jniLibs.srcDirs += horizonStagedJniDir
                 assets.srcDirs += horizonStagedAssetsDir
             }
+            if (rustcraftEngineBundled) {
+                jniLibs.srcDirs += new File(rustcraftStageDir, 'jniLibs')
+                // each title update's engine*.txt, licence and notices (assets/rustcraft/)
+                assets.srcDirs += new File(rustcraftStageDir, 'assets')
+            }
+            // DroidBridge's own Rust-engine mods for the Java mod import, in every build only
+            // with JAVA_MOD_IMPORT=true.
+            if (horizonEngineBundled && javaModImportAll) {
+                assets.srcDirs += horizonEquivalentsStageDir
+            }
+        }
+        // Otherwise in the debug builds only: never in a Google Play release.
+        if (horizonEngineBundled && !javaModImportAll) {
+            debug {
+                assets.srcDirs += horizonEquivalentsStageDir
+            }
+            obfuscatedDebug {
+                assets.srcDirs += horizonEquivalentsStageDir
+            }
         }
     }
 
@@ -541,6 +646,12 @@ dependencies {
     // deliberately keeps REQUIRE_PLAY_INTEGRITY_FOR_ENTITLEMENT=false until a server
     // endpoint is configured: Play Integrity verdicts must be verified server-side.
     implementation 'com.google.android.play:integrity:1.6.0'
+
+    // Google Play's in-app update API: asks the Play Store itself whether a newer
+    // DroidBridge is out for this device (update/LauncherUpdateChecker.java) and runs the
+    // update in the app. Without it the checker could only read the Play web page,
+    // which no longer shows the version.
+    implementation 'com.google.android.play:app-update:2.1.0'
 
     implementation 'org.apache.commons:commons-compress:1.27.1'
     implementation 'org.tukaani:xz:1.10'
@@ -696,8 +807,108 @@ tasks.register('stageHorizonEngine', Sync) {
     }
 }
 
+// OpenGL ES on Android 15 and later needs a one-line fix in wgpu (the graphics library):
+// rustcraft's tools/patch_wgpu_gles.py makes it, and with --auto it is quiet when the fix
+// is in place already and never fails the build (Vulkan doesn't need it).
+tasks.register('patchRustcraftGles', Exec) {
+    group = 'droidbridge'
+    description = 'Applies rustcraft\'s OpenGL ES fix for Android 15 (tools/patch_wgpu_gles.py --auto).'
+
+    onlyIf { rustcraftAutoBuild && new File(rustcraftSourceRoot, 'tools/patch_wgpu_gles.py').isFile() }
+    outputs.upToDateWhen { false }
+    workingDir rustcraftSourceRoot
+    ignoreExitValue = true
+    def cargoBin = new File(System.getProperty('user.home'), '.cargo/bin')
+    def pathKey = System.getenv().keySet().find { it.equalsIgnoreCase('PATH') } ?: 'PATH'
+    if (cargoBin.isDirectory()) {
+        environment(pathKey, cargoBin.absolutePath + File.pathSeparator + (System.getenv(pathKey) ?: ''))
+    }
+    commandLine(horizonPythonCommand() + [
+            new File(rustcraftSourceRoot, 'tools/patch_wgpu_gles.py').absolutePath,
+            '--auto'
+    ])
+}
+
+tasks.register('buildRustcraftEngine', Exec) {
+    dependsOn('patchRustcraftGles')
+    group = 'droidbridge'
+    description = 'Builds the Rust Craft engine library with cargo ndk (RUSTCRAFT_AUTO_BUILD=true only).'
+
+    onlyIf { rustcraftAutoBuild }
+    // Cargo decides what is out of date, so this always asks it (a no-op build is quick).
+    outputs.upToDateWhen { false }
+    workingDir rustcraftCrateDir
+    def cargoBin = new File(System.getProperty('user.home'), '.cargo/bin')
+    def pathKey = System.getenv().keySet().find { it.equalsIgnoreCase('PATH') } ?: 'PATH'
+    if (cargoBin.isDirectory()) {
+        environment(pathKey, cargoBin.absolutePath + File.pathSeparator + (System.getenv(pathKey) ?: ''))
+    }
+    doFirst {
+        def ndk = android.ndkDirectory
+        if (ndk != null && ndk.isDirectory()) {
+            environment('ANDROID_NDK_HOME', ndk.absolutePath)
+        }
+        logger.lifecycle("DroidBridge: building the rustcraft engine (release profile${rustcraftReleaseBuild ? '' : ', also for debug app builds'}); the first build takes a few minutes.")
+    }
+    // The engine is always built optimized: a debug Rust build is far too slow to play.
+    commandLine 'cargo', 'ndk', '-t', rustcraftAbi, '-P', '26', '-o', 'jniLibs', 'build', '--release'
+}
+
+tasks.register('stageRustcraftEngine', Sync) {
+    dependsOn('buildRustcraftEngine')
+    group = 'droidbridge'
+    description = 'Copies every Rust Craft title update (librustcraft_*.so and assets/rustcraft/) into the APK inputs.'
+
+    onlyIf { rustcraftEngineBundled }
+    includeEmptyDirs = false
+
+    from(rustcraftSourceJniDir) {
+        include rustcraftLibraryNames
+        into "jniLibs/${rustcraftAbi}"
+    }
+    from(rustcraftSourceAssetsDir) {
+        include 'rustcraft/**'
+        into 'assets'
+    }
+    into rustcraftStageDir
+
+    doLast {
+        def staged = new File(rustcraftStageDir, "jniLibs/${rustcraftAbi}")
+        def libraries = (staged.listFiles() ?: []).collect { "${it.name} (${(it.length() / (1024 * 1024)) as long} MiB)" }
+        logger.lifecycle("DroidBridge: staged Rust Craft ${libraries.join(', ')}")
+    }
+}
+
+// DroidBridge's own sandboxed mods (horizon-mod-equivalents/*.hmod and equivalents.json) into
+// assets/horizon-equivalents/ for the Java mod import; the sourceSets above decide which builds
+// get them.
+tasks.register('stageHorizonEquivalents', Sync) {
+    group = 'droidbridge'
+    description = 'Copies DroidBridge\'s own Horizon mods (horizon-mod-equivalents) into the APK inputs.'
+
+    includeEmptyDirs = false
+    from(horizonEquivalentsSource) {
+        include 'equivalents.json', '*.hmod'
+        into 'horizon-equivalents'
+    }
+    into horizonEquivalentsStageDir
+
+    doLast {
+        def mods = horizonEquivalentsSource.isDirectory()
+                ? (horizonEquivalentsSource.listFiles({ f -> f.name.endsWith('.hmod') } as FileFilter) ?: []).length
+                : 0
+        if (mods == 0) {
+            logger.lifecycle('DroidBridge: no .hmod in horizon-mod-equivalents/ (run build-droidbridge-mods.bat); the Java mod import offers no DroidBridge versions.')
+        } else {
+            logger.lifecycle("DroidBridge: staged ${mods} DroidBridge mod(s) for the Java mod import")
+        }
+    }
+}
+
 tasks.named('preBuild') {
+    dependsOn('stageHorizonEquivalents')
     dependsOn('stageHorizonEngine')
+    dependsOn('stageRustcraftEngine')
     dependsOn(':methods_injector_agent:copyAgentToAssets')
     dependsOn('verifyNoLooseMesaJniLibs')
     dependsOn('extractMesaAarJniLibs')
@@ -709,8 +920,11 @@ tasks.configureEach { task ->
         task.dependsOn('verifyNoLooseMesaJniLibs')
         task.dependsOn('extractMesaAarJniLibs')
         task.dependsOn('stageHorizonEngine')
+        task.dependsOn('stageRustcraftEngine')
     }
     if (task.name.startsWith('merge') && task.name.endsWith('Assets')) {
+        task.dependsOn('stageHorizonEquivalents')
         task.dependsOn('stageHorizonEngine')
+        task.dependsOn('stageRustcraftEngine')
     }
 }

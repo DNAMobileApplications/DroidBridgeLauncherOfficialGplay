@@ -513,11 +513,6 @@ final class TouchControlButtonView extends TextView {
         return Math.max(30f * density, Math.min(getWidth(), getHeight()) * 0.38f);
     }
 
-    private float resizeHandleHitSize() {
-        float density = getResources().getDisplayMetrics().density;
-        return Math.max(48f * density, resizeHandleSize());
-    }
-
     private float resizeHandleOutsideHitOverhang() {
         return 18f * getResources().getDisplayMetrics().density;
     }
@@ -606,19 +601,6 @@ final class TouchControlButtonView extends TextView {
             default:
                 return true;
         }
-    }
-
-    private void scheduleEditLongPress() {
-        cancelEditLongPress();
-        editLongPressRunnable = () -> {
-            editLongPressRunnable = null;
-            if (!isAttachedToWindow() || !editMode) return;
-            editLongPressTriggered = true;
-            setPressed(false);
-            requestParentDisallowIntercept(false);
-            listener.onEditRequested(this, data);
-        };
-        mainHandler.postDelayed(editLongPressRunnable, ViewConfiguration.getLongPressTimeout());
     }
 
     private void cancelEditLongPress() {

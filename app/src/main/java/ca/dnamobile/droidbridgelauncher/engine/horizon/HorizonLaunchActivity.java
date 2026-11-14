@@ -44,7 +44,6 @@ import java.util.Locale;
 
 import ca.dnamobile.droidbridgelauncher.LauncherSettingsActivity;
 import ca.dnamobile.droidbridgelauncher.data.AccountStore;
-import ca.dnamobile.droidbridgelauncher.engine.EnginePreferences;
 import ca.dnamobile.droidbridgelauncher.fancymenu.MicrosoftAuthConfigPersonal;
 import ca.dnamobile.droidbridgelauncher.fancymenu.MicrosoftAuthManagerPersonal;
 import ca.dnamobile.droidbridgelauncher.feature.log.Logging;
@@ -71,7 +70,6 @@ public final class HorizonLaunchActivity extends AppCompatActivity {
     public static final String EXTRA_GAME_DIR = "ca.dnamobile.droidbridgelauncher.horizon.extra.GAME_DIR";
     public static final String EXTRA_QUICK_PLAY_WORLD = "ca.dnamobile.droidbridgelauncher.horizon.extra.QUICK_PLAY_WORLD";
     public static final String EXTRA_QUICK_PLAY_SERVER = "ca.dnamobile.droidbridgelauncher.horizon.extra.QUICK_PLAY_SERVER";
-    /** False opens the engine's own launcher screen (renderer, touch and engine settings). */
 
     private static final String STATE_ENGINE_STARTED = "engineStarted";
     private static final String PROFILE_URL = "https://api.minecraftservices.com/minecraft/profile";
@@ -157,6 +155,9 @@ public final class HorizonLaunchActivity extends AppCompatActivity {
             return;
         }
         if (finished) return;
+        // The engine process starts and loads its library while the account is checked
+        // (a read-only check: nothing downloads before the license is verified).
+        HorizonInstallService.prewarm(this, HorizonEngine.engineHome(this));
         showProgress("Checking your Microsoft account...", null, -1, 0, 0, false);
         checkAccountInBackground();
     }
@@ -487,18 +488,15 @@ public final class HorizonLaunchActivity extends AppCompatActivity {
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
         intent.putExtra(HorizonActivity.EXTRA_ENGINE_HOME, HorizonEngine.engineHome(this).getAbsolutePath());
         intent.putExtra(HorizonActivity.EXTRA_SESSION_FILE, session.getAbsolutePath());
-        // DroidBridge owns the launcher/settings experience. Always enter Horizon's embedded
-        // autoplay path so no stale/internal caller can expose Horizon's standalone launcher UI.
-        intent.putExtra(HorizonActivity.EXTRA_HOST_CONTROLS,
-                EnginePreferences.useDroidBridgeControlsForHorizon(this));
+        // DroidBridge owns the launcher, settings and controls: HorizonActivity always enters
+        // Horizon's embedded autoplay path with DroidBridge's controls.
         HorizonGraphics.applyTo(this, intent);
         copyExtra(source, EXTRA_GAME_DIR, intent, HorizonActivity.EXTRA_GAME_DIR);
         copyExtra(source, EXTRA_QUICK_PLAY_WORLD, intent, HorizonActivity.EXTRA_QUICK_PLAY_WORLD);
         copyExtra(source, EXTRA_QUICK_PLAY_SERVER, intent, HorizonActivity.EXTRA_QUICK_PLAY_SERVER);
         LauncherLogManager.append("Horizon: starting engine for instance "
                 + source.getStringExtra(EXTRA_INSTANCE_KEY)
-                + " autoplay=true"
-                + " droidbridgeControls=" + intent.getBooleanExtra(HorizonActivity.EXTRA_HOST_CONTROLS, false));
+                + " autoplay=true droidbridgeControls=true");
         try {
             startActivity(intent);
             overridePendingTransition(0, 0);

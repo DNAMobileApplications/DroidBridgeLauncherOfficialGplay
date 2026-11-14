@@ -5,6 +5,10 @@
     <!-- Network/auth/download access. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Rust Craft's LAN games: hearing the worlds other players open to LAN
+         (their 224.0.2.60:4445 announcements) needs Wi-Fi multicast. -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
 
     <!-- Foreground installation progress service. -->
     <uses-permission
@@ -269,6 +273,117 @@
             android:process=":recording"
             android:stopWithTask="false" />
 
+        <!-- Rust Craft engine: Minecraft Java rewritten in Rust, offered per instance, a title
+             update for each version: TU1 for vanilla 1.0 (RustcraftActivity), TU2 for 1.1
+             (RustcraftTu2Activity), TU3 for 1.2.5 (RustcraftTu3Activity), TU4 for 1.3.2
+             (RustcraftTu4Activity), TU5 for 1.4.7 (RustcraftTu5Activity). Enabled only in builds that bundle librustcraft_android.so
+             (app/build.gradle). RustcraftLaunchActivity checks the account in the launcher
+             process, then starts RustcraftActivity in :rustcraft; that process ends when the
+             player quits, which returns them here. -->
+        <activity
+            android:name=".engine.rustcraft.RustcraftLaunchActivity"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+            android:enabled="${rustcraftEngineEnabled}"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:theme="@style/Theme.DroidBridge.HorizonHandoff" />
+        <activity
+            android:name="dev.rustcraft.android.RustcraftActivity"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.rustcraft"
+            android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|touchscreen|uiMode"
+            android:enabled="${rustcraftEngineEnabled}"
+            android:exported="false"
+            android:process=":rustcraft"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/HorizonGameTheme"
+            android:windowSoftInputMode="adjustResize">
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="rustcraft_android" />
+        </activity>
+        <!-- Rust Craft TU2 (Minecraft 1.1): the same host as RustcraftActivity (TU1, 1.0), on its
+             own library, librustcraft_tu2.so, since a NativeActivity takes its library from its
+             own entry here. RustcraftLaunchActivity starts the title update an instance's
+             Minecraft version needs (engine/rustcraft/RustcraftEngine). -->
+        <activity
+            android:name="dev.rustcraft.android.RustcraftTu2Activity"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.rustcraft"
+            android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|touchscreen|uiMode"
+            android:enabled="${rustcraftEngineEnabled}"
+            android:exported="false"
+            android:process=":rustcraft"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/HorizonGameTheme"
+            android:windowSoftInputMode="adjustResize">
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="rustcraft_tu2" />
+        </activity>
+        <!-- Rust Craft TU3 (Minecraft 1.2.5): the same host as RustcraftActivity (TU1, 1.0), on its
+             own library, librustcraft_tu3.so, since a NativeActivity takes its library from its
+             own entry here. RustcraftLaunchActivity starts the title update an instance's
+             Minecraft version needs (engine/rustcraft/RustcraftEngine). -->
+        <activity
+            android:name="dev.rustcraft.android.RustcraftTu3Activity"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.rustcraft"
+            android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|touchscreen|uiMode"
+            android:enabled="${rustcraftEngineEnabled}"
+            android:exported="false"
+            android:process=":rustcraft"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/HorizonGameTheme"
+            android:windowSoftInputMode="adjustResize">
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="rustcraft_tu3" />
+        </activity>
+        <!-- Rust Craft TU4 (Minecraft 1.3.2): the same host as RustcraftActivity (TU1, 1.0), on its
+             own library, librustcraft_tu4.so, since a NativeActivity takes its library from its
+             own entry here. RustcraftLaunchActivity starts the title update an instance's
+             Minecraft version needs (engine/rustcraft/RustcraftEngine). -->
+        <activity
+            android:name="dev.rustcraft.android.RustcraftTu4Activity"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.rustcraft"
+            android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|touchscreen|uiMode"
+            android:enabled="${rustcraftEngineEnabled}"
+            android:exported="false"
+            android:process=":rustcraft"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/HorizonGameTheme"
+            android:windowSoftInputMode="adjustResize">
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="rustcraft_tu4" />
+        </activity>
+        <!-- Rust Craft TU5 (Minecraft 1.4.7): the same host as RustcraftActivity (TU1, 1.0), on its
+             own library, librustcraft_tu5.so, since a NativeActivity takes its library from its
+             own entry here. RustcraftLaunchActivity starts the title update an instance's
+             Minecraft version needs (engine/rustcraft/RustcraftEngine). -->
+        <activity
+            android:name="dev.rustcraft.android.RustcraftTu5Activity"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.rustcraft"
+            android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|touchscreen|uiMode"
+            android:enabled="${rustcraftEngineEnabled}"
+            android:exported="false"
+            android:process=":rustcraft"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/HorizonGameTheme"
+            android:windowSoftInputMode="adjustResize">
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="rustcraft_tu5" />
+        </activity>
+
         <!-- Horizon engine: Minecraft Java 26.3 rewritten in Rust, offered per instance.
              Enabled only in builds that bundle libhorizon_android.so (app/build.gradle).
              HorizonLaunchActivity runs the account preflight in the launcher process, then
@@ -283,6 +398,8 @@
             android:theme="@style/Theme.DroidBridge.HorizonHandoff" />
         <activity
             android:name="dev.horizon.android.HorizonActivity"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
             android:taskAffinity="${applicationId}.horizon"
             android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|touchscreen|uiMode"
             android:enabled="${horizonEngineEnabled}"

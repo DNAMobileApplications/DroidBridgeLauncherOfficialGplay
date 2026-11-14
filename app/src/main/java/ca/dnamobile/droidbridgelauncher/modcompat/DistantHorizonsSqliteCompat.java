@@ -13,7 +13,6 @@ import androidx.annotation.Nullable;
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.DataInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -387,13 +386,6 @@ public final class DistantHorizonsSqliteCompat {
                 }
             }
             if (match && data[i + needle.length] == 0) return true;
-        }
-        return false;
-    }
-
-    private static boolean containsDesktopDependency(@NonNull List<String> dependencies) {
-        for (String dependency : dependencies) {
-            if (looksLikeDesktopRuntimeDependency(dependency)) return true;
         }
         return false;
     }

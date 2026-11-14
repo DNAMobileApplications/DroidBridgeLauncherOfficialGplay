@@ -45,13 +45,13 @@ import ca.dnamobile.droidbridgelauncher.modcompat.PreLaunchModScan;
 import ca.dnamobile.droidbridgelauncher.renderer.DriverPluginManager;
 import ca.dnamobile.droidbridgelauncher.renderer.BtaRendererPolicy;
 import ca.dnamobile.droidbridgelauncher.renderer.DroidBridgeMesaSupport;
+import ca.dnamobile.droidbridgelauncher.renderer.FreedrenoCompatOptions;
 import ca.dnamobile.droidbridgelauncher.renderer.LiteGlesLaunchPreloader;
 import ca.dnamobile.droidbridgelauncher.renderer.KopperZinkRenderer;
 import ca.dnamobile.droidbridgelauncher.renderer.MobileGluesConfigHelper;
 import ca.dnamobile.droidbridgelauncher.renderer.SimpleFpeWrapperCompat;
 import ca.dnamobile.droidbridgelauncher.renderer.AdrenoSyncFenceFdGuard;
 import ca.dnamobile.droidbridgelauncher.renderer.RendererInterface;
-import ca.dnamobile.droidbridgelauncher.settings.LauncherPreferences;
 import ca.dnamobile.droidbridgelauncher.utils.path.PathManager;
 import ca.dnamobile.droidbridgelauncher.runtime.Architecture;
 import ca.dnamobile.droidbridgelauncher.GameActivity;
@@ -390,6 +390,8 @@ public final class JavaRuntimeBootstrap {
         applyBta8MesaCompatibilityProfileIfNeeded(plan, renderer, env);
         applySnapshot5PlusFreedrenoPersistentMapCompatibility(plan, renderer, env);
         applyFreedreno263PlusStableSdlSurface(plan, renderer, env);
+        safeAppendLog("RuntimeBootstrap: " + FreedrenoCompatOptions.apply(
+                context, renderer, plan.isUseSystemVulkanDriver(), env));
         applyVulkanVsyncEnvironment(context, plan, env);
         applyNativeMesaVsyncEnvironment(plan, renderer, env);
         applyWrappedSdl3OpenGlVsyncEnvironment(context, plan, renderer, env);
@@ -1258,26 +1260,6 @@ public final class JavaRuntimeBootstrap {
             }
         }
         return minecraftMajor >= 26;
-    }
-
-    private static boolean isMinecraft26_2OrNewer(@NonNull String minecraftVersion) {
-        String value = minecraftVersion.trim().toLowerCase(Locale.ROOT);
-        Matcher matcher = MINECRAFT_RELEASE_PATTERN.matcher(value);
-        int minecraftMajor = -1;
-        int minecraftMinor = -1;
-        while (matcher.find()) {
-            try {
-                // Loader profiles normally end with the inherited Minecraft
-                // version, e.g. fabric-loader-0.19.3-26.2. Keep the last dotted
-                // version instead of treating the loader's own version as Minecraft.
-                minecraftMajor = Integer.parseInt(matcher.group(1));
-                minecraftMinor = Integer.parseInt(matcher.group(2));
-            } catch (Throwable ignored) {
-                // Keep the last successfully parsed token.
-            }
-        }
-        return minecraftMajor > 26
-                || (minecraftMajor == 26 && minecraftMinor >= 2);
     }
 
     private static boolean isMinecraft26_3OrNewer(@NonNull String minecraftVersion) {

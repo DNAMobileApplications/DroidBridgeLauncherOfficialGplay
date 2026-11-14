@@ -17,7 +17,8 @@ import androidx.annotation.Nullable;
 
 /**
  * The engine each instance should start with. No saved choice means Java (the default).
- * Horizon is used only when the player explicitly enables it for that instance.
+ * Horizon (26.3) and rustcraft (1.0) are used only when the player explicitly enables them
+ * for that instance.
  * Keys are the same instance keys the launcher already uses for per-instance settings.
  */
 public final class EnginePreferences {
@@ -47,23 +48,8 @@ public final class EnginePreferences {
         editor.apply();
     }
 
-    private static final String KEY_HORIZON_HOST_CONTROLS = "horizon.droidbridge_controls";
-
-    /**
-     * True (the default) when Horizon uses DroidBridge's touch controls, virtual mouse and
-     * controller mapper; false for the engine's own built-in controls.
-     */
-    public static boolean useDroidBridgeControlsForHorizon(@NonNull Context context) {
-        try {
-            return prefs(context).getBoolean(KEY_HORIZON_HOST_CONTROLS, true);
-        } catch (Throwable ignored) {
-            return true;
-        }
-    }
-
-    public static void setUseDroidBridgeControlsForHorizon(@NonNull Context context, boolean enabled) {
-        prefs(context).edit().putBoolean(KEY_HORIZON_HOST_CONTROLS, enabled).apply();
-    }
+    // Horizon always uses DroidBridge's controls (it has no built-in touch controls any more),
+    // so there is no Horizon controls preference.
 
     // Horizon graphics, for every Horizon launch (not per instance).
     private static final String KEY_HORIZON_RENDERER = "horizon.renderer";
@@ -106,6 +92,47 @@ public final class EnginePreferences {
 
     public static void setHorizonVulkanDriver(@NonNull Context context, @NonNull String driverName) {
         prefs(context).edit().putString(KEY_HORIZON_VULKAN_DRIVER, driverName).apply();
+    }
+
+    // rustcraft (Minecraft 1.0 in Rust), for every rustcraft launch (not per instance).
+    private static final String KEY_RUSTCRAFT_HOST_CONTROLS = "rustcraft.droidbridge_controls";
+    private static final String KEY_RUSTCRAFT_RENDERER = "rustcraft.renderer";
+
+    /** The engine picks: Vulkan when the device has it, otherwise OpenGL ES. */
+    public static final String RUSTCRAFT_RENDERER_AUTO = "";
+    public static final String RUSTCRAFT_RENDERER_VULKAN = "vulkan";
+    public static final String RUSTCRAFT_RENDERER_OPENGL = "opengl";
+
+    /**
+     * True (the default) when rustcraft uses DroidBridge's touch controls, virtual mouse and
+     * controller mapper. The engine has no touch controls of its own, so off means a
+     * physical keyboard and mouse only.
+     */
+    public static boolean useDroidBridgeControlsForRustcraft(@NonNull Context context) {
+        try {
+            return prefs(context).getBoolean(KEY_RUSTCRAFT_HOST_CONTROLS, true);
+        } catch (Throwable ignored) {
+            return true;
+        }
+    }
+
+    public static void setUseDroidBridgeControlsForRustcraft(@NonNull Context context, boolean enabled) {
+        prefs(context).edit().putBoolean(KEY_RUSTCRAFT_HOST_CONTROLS, enabled).apply();
+    }
+
+    /** The renderer DroidBridge asks rustcraft for; "" lets the engine choose. */
+    @NonNull
+    public static String getRustcraftRenderer(@NonNull Context context) {
+        try {
+            String value = prefs(context).getString(KEY_RUSTCRAFT_RENDERER, RUSTCRAFT_RENDERER_AUTO);
+            return value == null ? RUSTCRAFT_RENDERER_AUTO : value;
+        } catch (Throwable ignored) {
+            return RUSTCRAFT_RENDERER_AUTO;
+        }
+    }
+
+    public static void setRustcraftRenderer(@NonNull Context context, @NonNull String renderer) {
+        prefs(context).edit().putString(KEY_RUSTCRAFT_RENDERER, renderer).apply();
     }
 
     @NonNull

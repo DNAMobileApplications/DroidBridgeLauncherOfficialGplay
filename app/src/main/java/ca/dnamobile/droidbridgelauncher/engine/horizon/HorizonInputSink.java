@@ -17,7 +17,7 @@ import org.lwjgl.glfw.CallbackBridge;
 
 import java.util.function.IntSupplier;
 
-import dev.horizon.android.HorizonInput;
+import ca.dnamobile.droidbridgelauncher.engine.EngineInput;
 
 /**
  * CallbackBridge's input, sent to the Horizon engine instead of a GLFW window.
@@ -31,14 +31,18 @@ final class HorizonInputSink implements CallbackBridge.HostInputSink {
     private final View controlsRoot;
     private final View engineDecor;
     private final IntSupplier imeViewportInset;
+    /** The engine the input goes to (Horizon or rustcraft). */
+    private final EngineInput input;
     private final int[] rootOnScreen = new int[2];
     private final int[] decorOnScreen = new int[2];
 
     HorizonInputSink(
             @NonNull View controlsRoot,
             @NonNull View engineDecor,
-            @NonNull IntSupplier imeViewportInset
+            @NonNull IntSupplier imeViewportInset,
+            @NonNull EngineInput input
     ) {
+        this.input = input;
         this.controlsRoot = controlsRoot;
         this.engineDecor = engineDecor;
         this.imeViewportInset = imeViewportInset;
@@ -81,31 +85,36 @@ final class HorizonInputSink implements CallbackBridge.HostInputSink {
 
     @Override
     public void cursorPos(float x, float y) {
-        HorizonInput.cursor(toWindowX(x), toWindowY(y));
+        input.cursor(toWindowX(x), toWindowY(y));
     }
 
     @Override
     public void cursorPosSilently(float x, float y) {
-        HorizonInput.cursorSilently(toWindowX(x), toWindowY(y));
+        input.cursorSilently(toWindowX(x), toWindowY(y));
     }
 
     @Override
     public void mouseButton(int glfwButton, boolean down) {
-        HorizonInput.mouseButton(glfwButton, down);
+        input.mouseButton(glfwButton, down);
     }
 
     @Override
     public void scroll(double xOffset, double yOffset) {
-        HorizonInput.scroll((float) xOffset, (float) yOffset);
+        input.scroll((float) xOffset, (float) yOffset);
     }
 
     @Override
     public void key(int glfwKey, boolean down, int mods) {
-        HorizonInput.key(glfwKey, down);
+        input.key(glfwKey, down);
     }
 
     @Override
     public void character(char codepoint) {
-        HorizonInput.text(String.valueOf(codepoint));
+        input.text(String.valueOf(codepoint));
+    }
+
+    @Override
+    public boolean isKeybindCaptureActive() {
+        return input.isKeybindCaptureActive();
     }
 }

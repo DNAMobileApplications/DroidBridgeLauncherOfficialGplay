@@ -99,7 +99,13 @@ public final class LauncherUpdateDialogs {
                 .setTitle("DroidBridge update available")
                 .setMessage(message.toString())
                 .setNegativeButton("Later", null)
-                .setPositiveButton("Update", (dialog, which) -> openPlayStore(activity))
+                .setPositiveButton("Update", (dialog, which) -> {
+                    // Google Play's own update screen when the Play Store reported it;
+                    // otherwise its listing.
+                    if (!LauncherUpdateChecker.startPlayUpdate(activity, info)) {
+                        openPlayStore(activity);
+                    }
+                })
                 .show();
     }
 

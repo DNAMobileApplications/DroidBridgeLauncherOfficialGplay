@@ -13,22 +13,35 @@
 package dev.horizon.android;
 
 import android.app.ActivityManager;
+import android.app.PendingIntent;
+import android.app.PictureInPictureParams;
+import android.app.RemoteAction;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.pm.PackageManager;
+import android.content.res.Configuration;
+import android.graphics.drawable.Icon;
 import android.os.Build;
 import android.os.Bundle;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.util.Log;
+import android.util.Rational;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.view.KeyEvent;
 import android.view.Window;
 import android.view.MotionEvent;
+import android.view.View;
+import ca.dnamobile.droidbridgelauncher.settings.LauncherPreferences;
 
 import java.io.File;
 
 import androidx.annotation.Keep;
 
+import ca.dnamobile.droidbridgelauncher.engine.EngineWindowLayout;
 import ca.dnamobile.droidbridgelauncher.engine.horizon.HorizonControlsHost;
 
 /** Passes the launch handoff to the engine, then lets NativeActivity start it. */
@@ -92,6 +105,24 @@ public final class HorizonActivity extends android.app.NativeActivity {
     private HorizonControlsHost controls;
     private volatile boolean quitting;
 
+    /** The picture-in-picture window's close button (Android 13 on). */
+    private static final String ACTION_CLOSE_PICTURE_IN_PICTURE =
+            "ca.dnamobile.droidbridgelauncher.action.CLOSE_HORIZON_PIP";
+    /**
+     * True from entering picture-in-picture until the game is full size again: some Android
+     * versions report it ended before onStop() when the player dismisses the window.
+     */
+    private boolean pictureInPictureWasActive;
+    private boolean pictureInPictureCloseReceiverRegistered;
+    private final BroadcastReceiver pictureInPictureCloseReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (intent != null && ACTION_CLOSE_PICTURE_IN_PICTURE.equals(intent.getAction())) {
+                closeFromPictureInPicture("picture-in-picture close button");
+            }
+        }
+    };
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         // NativeActivity can briefly expose its own title/window before the first native frame.
@@ -112,7 +143,9 @@ public final class HorizonActivity extends android.app.NativeActivity {
         }
         new File(home).mkdirs();
         String gameDir = extra(intent, EXTRA_GAME_DIR);
-        boolean hostControls = intent != null && intent.getBooleanExtra(EXTRA_HOST_CONTROLS, false);
+        // DroidBridge's controls (touch layout, virtual mouse, controller mapper) always: the
+        // engine's own touch buttons never show inside DroidBridge.
+        boolean hostControls = true;
         setEnv(ENV_HOME, home);
         setEnv(ENV_GAME_DIR, gameDir);
         setEnv(ENV_SESSION, extra(intent, EXTRA_SESSION_FILE));
@@ -135,7 +168,10 @@ public final class HorizonActivity extends android.app.NativeActivity {
         // initialization is process-wide; loading the .so from the class initializer can expose
         // one frame of Horizon's standalone state before DroidBridge's autoplay flags exist.
         ensureNativeLibraryLoaded();
+        // DroidBridge's Game Orientation (Portrait, Reverse landscape, Centered Game View...)
+        EngineWindowLayout.applyOrientation(this);
         super.onCreate(savedInstanceState);
+        EngineWindowLayout.applyWindowSize(this);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             try {
                 getSplashScreen().setOnExitAnimationListener(splash -> splash.remove());
@@ -148,6 +184,116 @@ public final class HorizonActivity extends android.app.NativeActivity {
                     vulkanDriver);
             controls.attach();
         }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            try {
+                registerReceiver(pictureInPictureCloseReceiver,
+                        new IntentFilter(ACTION_CLOSE_PICTURE_IN_PICTURE),
+                        Context.RECEIVER_NOT_EXPORTED);
+                pictureInPictureCloseReceiverRegistered = true;
+            } catch (RuntimeException problem) {
+                Log.w(TAG, "Could not register the picture-in-picture close action", problem);
+            }
+        }
+    }
+
+    // --- Picture-in-picture (DroidBridge's setting, as the Java engine's GameActivity) ----
+
+    /** Home or another app: into picture-in-picture, when DroidBridge's setting has it on. */
+    @Override
+    protected void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O
+                || !LauncherPreferences.isGamePictureInPictureEnabled(this)
+                || !getPackageManager().hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+                || quitting || isFinishing() || isInPictureInPictureMode()) {
+            return;
+        }
+        try {
+            PictureInPictureParams.Builder builder = new PictureInPictureParams.Builder()
+                    .setAspectRatio(pictureInPictureAspect());
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                builder.setSeamlessResizeEnabled(false);
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                    && pictureInPictureCloseReceiverRegistered) {
+                Intent close = new Intent(ACTION_CLOSE_PICTURE_IN_PICTURE).setPackage(getPackageName());
+                PendingIntent pending = PendingIntent.getBroadcast(this, 7423, close,
+                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                builder.setCloseAction(new RemoteAction(
+                        Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
+                        "Close game", "Close Horizon and end this game", pending));
+            }
+            if (!enterPictureInPictureMode(builder.build())) {
+                Log.i(TAG, "Android declined picture-in-picture");
+            }
+        } catch (RuntimeException problem) {
+            Log.w(TAG, "Picture-in-picture unavailable", problem);
+        }
+    }
+
+    /** The game window's own shape, within what Android allows (2.39:1 either way). */
+    private Rational pictureInPictureAspect() {
+        View decor = getWindow().getDecorView();
+        int width = decor.getWidth();
+        int height = decor.getHeight();
+        if (width <= 0 || height <= 0) return new Rational(16, 9);
+        float ratio = width / (float) height;
+        if (ratio > 2.39f) return new Rational(239, 100);
+        if (ratio < 1f / 2.39f) return new Rational(100, 239);
+        return new Rational(width, height);
+    }
+
+    @Override
+    public void onPictureInPictureModeChanged(boolean inPictureInPicture, Configuration newConfig) {
+        super.onPictureInPictureModeChanged(inPictureInPicture, newConfig);
+        if (inPictureInPicture) pictureInPictureWasActive = true;
+        Log.i(TAG, "picture-in-picture " + (inPictureInPicture ? "on" : "off"));
+        // the floating window shows the whole game (Centered Game View again when full size)
+        EngineWindowLayout.applyWindowSize(this);
+        if (controls != null) controls.setPictureInPicture(inPictureInPicture);
+    }
+
+    /** Turned, folded or resized: the game's window (Centered Game View) and the controls follow. */
+    @Override
+    public void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        EngineWindowLayout.applyWindowSize(this);
+        HorizonControlsHost host = controls;
+        if (host != null) getWindow().getDecorView().post(host::followEngineWindowNow);
+    }
+
+    @Override
+    protected void onStop() {
+        // the floating window dismissed (swiped away, or its close button on older Android)
+        boolean dismissed = pictureInPictureWasActive
+                && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                && !isInPictureInPictureMode()
+                && !isChangingConfigurations();
+        super.onStop();
+        if (dismissed) closeFromPictureInPicture("picture-in-picture window dismissed");
+    }
+
+    /**
+     * The floating window closed: the game ends as Force Close ends it (its task out of
+     * Recents, then the :horizon process), since Horizon can't be asked to save and quit
+     * from outside.
+     */
+    private void closeFromPictureInPicture(String reason) {
+        if (quitting) return;
+        quitting = true;
+        pictureInPictureWasActive = false;
+        Log.i(TAG, "Closing Horizon: " + reason);
+        removeOwnTaskFromRecents();
+        Thread exitThread = new Thread(() -> {
+            try {
+                Thread.sleep(1200L);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+            System.exit(0);
+        }, "droidbridge-horizon-pip-close");
+        exitThread.setDaemon(false);
+        exitThread.start();
     }
 
     /**
@@ -227,6 +373,13 @@ public final class HorizonActivity extends android.app.NativeActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        // full size again (expanded from picture-in-picture, or back from Recents)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !isInPictureInPictureMode()) {
+            pictureInPictureWasActive = false;
+        }
+        // Game Orientation (changed in the launcher meanwhile, perhaps)
+        EngineWindowLayout.applyOrientation(this);
+        EngineWindowLayout.applyWindowSize(this);
         if (controls != null) controls.onResume();
     }
 
@@ -294,6 +447,13 @@ public final class HorizonActivity extends android.app.NativeActivity {
 
     @Override
     protected void onDestroy() {
+        if (pictureInPictureCloseReceiverRegistered) {
+            try {
+                unregisterReceiver(pictureInPictureCloseReceiver);
+            } catch (RuntimeException ignored) {
+            }
+            pictureInPictureCloseReceiverRegistered = false;
+        }
         if (controls != null) {
             controls.destroy();
             controls = null;

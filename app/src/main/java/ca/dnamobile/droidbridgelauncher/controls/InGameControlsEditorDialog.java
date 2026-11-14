@@ -52,7 +52,6 @@ import java.util.Collections;
 
 import ca.dnamobile.droidbridgelauncher.ui.LauncherDialogStyle;
 import ca.dnamobile.droidbridgelauncher.utils.FullscreenUtils;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 /** Drag buttons to move; tap a button to edit/delete it. */
 public final class InGameControlsEditorDialog extends AppCompatDialog {

@@ -841,7 +841,10 @@ public final class HorizonAddons {
         file.delete();
     }
 
-    /** Removes partial files a cancelled or failed import or download left behind. */
+    /**
+     * Removes partial files a cancelled or failed import or download left behind, and the work
+     * folders of an interrupted Java mod conversion ({@code .carry-*.partial}).
+     */
     public static void cleanPartials(@NonNull File gameDir) {
         for (Kind kind : Kind.values()) {
             File[] files = folder(gameDir, kind).listFiles();
@@ -849,8 +852,7 @@ public final class HorizonAddons {
             for (File file : files) {
                 String name = file.getName();
                 if (name.startsWith(".") && name.endsWith(".partial")) {
-                    //noinspection ResultOfMethodCallIgnored
-                    file.delete();
+                    deleteRecursively(file);
                 }
             }
         }

@@ -455,7 +455,18 @@ public final class InstanceLaunchSettings {
         }
 
         if (settings.hasCustomJvmArgs()) {
-            for (String customArg : sanitizeCustomJvmArgs(tokenizeJvmArgs(settings.customJvmArgs))) {
+            ArrayList<String> customArgs = sanitizeCustomJvmArgs(tokenizeJvmArgs(settings.customJvmArgs));
+            boolean customGc = false;
+            for (String customArg : customArgs) {
+                if (JavaLaunchBuilder.isGcSelectionOrTuningArg(customArg)) customGc = true;
+            }
+            if (customGc) {
+                // The player's own collector settings replace the launcher's default G1
+                // profile; two collectors in one command line stop the JVM from starting.
+                args.removeIf(JavaLaunchBuilder::isGcSelectionOrTuningArg);
+                Logging.i(TAG, "Per-instance JVM args choose the GC; removed the default GC profile.");
+            }
+            for (String customArg : customArgs) {
                 insertBeforeClasspath(args, customArg);
             }
             Logging.i(TAG, "Applied per-instance JVM args: " + settings.customJvmArgs);

@@ -10,7 +10,6 @@
 package ca.dnamobile.droidbridgelauncher.runtime;
 
 import android.content.Context;
-import android.content.res.Configuration;
 import android.graphics.SurfaceTexture;
 import android.graphics.Matrix;
 import android.graphics.Bitmap;
@@ -27,7 +26,6 @@ import android.util.Log;
 import android.util.AttributeSet;
 import android.view.InputDevice;
 import android.view.Gravity;
-import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.PointerIcon;
@@ -1891,14 +1889,6 @@ public class MinecraftGLSurface extends FrameLayout implements GrabListener {
         return Math.max(1, height > 0 ? height : getHeight());
     }
 
-    private float scaleInputX(float x) {
-        return x * inputScaleX;
-    }
-
-    private float scaleInputY(float y) {
-        return y * inputScaleY;
-    }
-
     private float scaleDeltaX(float dx) {
         return dx * inputScaleX;
     }
@@ -3218,14 +3208,6 @@ public class MinecraftGLSurface extends FrameLayout implements GrabListener {
         return true;
     }
 
-    private void sendKeyTap(int keyCode) {
-        CallbackBridge.setInputReady(true);
-        CallbackBridge.setModifiers(keyCode, true);
-        CallbackBridge.sendKeyPress(keyCode, CallbackBridge.getCurrentMods(), true);
-        CallbackBridge.sendKeyPress(keyCode, CallbackBridge.getCurrentMods(), false);
-        CallbackBridge.setModifiers(keyCode, false);
-    }
-
     private void sendTapClickAt(float x, float y) {
         CallbackBridge.setInputReady(true);
         float clampedX = mapViewXToCursorX(x);
@@ -3710,12 +3692,6 @@ public class MinecraftGLSurface extends FrameLayout implements GrabListener {
 
     private void syncCurrentMouseSilently() {
         CallbackBridge.setCursorPosSilently(CallbackBridge.mouseX, CallbackBridge.mouseY);
-    }
-
-    private void scheduleSilentRegrabCursorSyncs() {
-        syncCurrentMouseSilently();
-        postDelayed(this::syncCurrentMouseSilently, POINTER_REGRAB_SILENT_CURSOR_SYNC_DELAY_MS);
-        postDelayed(this::syncCurrentMouseSilently, POINTER_REGRAB_SILENT_CURSOR_SYNC_DELAY_MS * 3L);
     }
 
     private void prepareTouchInputFocus(boolean allowAndroidViewFocus) {
@@ -5321,17 +5297,6 @@ public class MinecraftGLSurface extends FrameLayout implements GrabListener {
                 || name.contains("uinput")
                 || name.contains("gpio")
                 || name.contains("keypad");
-    }
-
-    private static boolean looksLikeMouseName(@NonNull String name) {
-        return name.contains("mouse")
-                || name.contains("trackball")
-                || name.contains("trackpad")
-                || name.contains("receiver")
-                || name.contains("logitech")
-                || name.contains("razer")
-                || name.contains("microsoft")
-                || name.contains("hid-compliant");
     }
 
     @NonNull

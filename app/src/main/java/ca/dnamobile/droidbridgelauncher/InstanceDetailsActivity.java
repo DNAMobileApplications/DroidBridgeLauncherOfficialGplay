@@ -63,10 +63,8 @@ import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ListView;
-import android.widget.PopupWindow;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
-import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -76,7 +74,6 @@ import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.StringRes;
-import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.FileProvider;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
@@ -114,6 +111,14 @@ import java.util.zip.ZipOutputStream;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import ca.dnamobile.droidbridgelauncher.engine.EngineLauncher;
+import ca.dnamobile.droidbridgelauncher.engine.EnginePreferences;
+import ca.dnamobile.droidbridgelauncher.engine.GameEngine;
+import ca.dnamobile.droidbridgelauncher.engine.horizon.HorizonAddons;
+import ca.dnamobile.droidbridgelauncher.engine.horizon.HorizonEngine;
+import ca.dnamobile.droidbridgelauncher.engine.horizon.HorizonInstanceMods;
+import ca.dnamobile.droidbridgelauncher.engine.horizon.RustModBrowser;
+import ca.dnamobile.droidbridgelauncher.engine.rustcraft.RustcraftEngine;
+import ca.dnamobile.droidbridgelauncher.engine.rustcraft.RustcraftMods;
 import ca.dnamobile.droidbridgelauncher.fancymenu.MicrosoftAuthConfigPersonal;
 import ca.dnamobile.droidbridgelauncher.fancymenu.MicrosoftAuthManagerPersonal;
 import ca.dnamobile.droidbridgelauncher.modmanager.ModManagerTools;
@@ -139,14 +144,12 @@ import ca.dnamobile.droidbridgelauncher.modmanager.ModJarMetadataExtractor;
 import ca.dnamobile.droidbridgelauncher.modmanager.ModManagerSource;
 import ca.dnamobile.droidbridgelauncher.modmanager.ModManagerUpdateManager;
 import ca.dnamobile.droidbridgelauncher.modmanager.ModManagerVersionResolver;
-import ca.dnamobile.droidbridgelauncher.renderer.BtaRendererPolicy;
 import ca.dnamobile.droidbridgelauncher.renderer.MobileGluesConfigHelper;
 import ca.dnamobile.droidbridgelauncher.renderer.RendererInterface;
 import ca.dnamobile.droidbridgelauncher.renderer.RendererPluginManager;
 import ca.dnamobile.droidbridgelauncher.renderer.Renderers;
 import ca.dnamobile.droidbridgelauncher.settings.LauncherPreferences;
 import ca.dnamobile.droidbridgelauncher.shortcuts.InstanceShortcutHelper;
-import ca.dnamobile.droidbridgelauncher.settings.MemoryAllocationUtils;
 import ca.dnamobile.droidbridgelauncher.storage.SafMinecraftMirror;
 import ca.dnamobile.droidbridgelauncher.storage.StorageLocation;
 import ca.dnamobile.droidbridgelauncher.storage.StorageLocationStore;
@@ -980,13 +983,13 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
         final AlertDialog[] dialogRef = new AlertDialog[1];
 
         addInstanceSettingsMenuRow(menuLayout, R.string.instance_settings_view_folder, dialogRef, MENU_VIEW_FOLDER);
+        addInstanceSettingsMenuRow(menuLayout, "Per Instance Settings", dialogRef, MENU_PER_INSTANCE_SETTINGS);
         if (findLatestInstanceCrashOrLogFile() != null) {
             addInstanceSettingsMenuRow(menuLayout, "Share Crash Log", dialogRef, MENU_SHARE_CRASH_LOG);
         }
         addInstanceSettingsMenuRow(menuLayout, R.string.button_delete_instance, dialogRef, MENU_DELETE_INSTANCE);
         addInstanceSettingsMenuRow(menuLayout, R.string.instance_settings_edit_name, dialogRef, MENU_EDIT_INSTANCE_NAME);
         addInstanceSettingsMenuRow(menuLayout, R.string.instance_settings_edit_icon, dialogRef, MENU_EDIT_INSTANCE_ICON);
-        addInstanceSettingsMenuRow(menuLayout, "Per Instance Settings", dialogRef, MENU_PER_INSTANCE_SETTINGS);
         addInstanceSettingsMenuRow(menuLayout, "Update Version", dialogRef, MENU_UPDATE_VERSION);
         if (ModpackUpdateManager.readInstalledModpackInfo(rootDirectory, gameDirectory) != null) {
             addInstanceSettingsMenuRow(menuLayout, "Update Modpack", dialogRef, MENU_UPDATE_MODPACK);
@@ -1505,14 +1508,6 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
         return value.data;
     }
 
-    private int resolveSelectableItemBackground() {
-        TypedValue value = new TypedValue();
-        if (getTheme().resolveAttribute(android.R.attr.selectableItemBackground, value, true)) {
-            return value.resourceId;
-        }
-        return 0;
-    }
-
 
     @Nullable
     private InstanceVersionUpdater.LoaderKind getSupportedLoaderKind() {
@@ -1803,205 +1798,6 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
         }
     }
 
-    private void loadModpackVersions(
-            @NonNull ModpackUpdateManager.InstalledModpackInfo installed,
-            @NonNull ModpackUpdateManager.ProjectMatch project
-    ) {
-        showUpdateProgressDialog("Update Modpack", "Loading " + project.platform.displayName + " versions...", true, 1, true);
-        Thread thread = new Thread(() -> {
-            try {
-                ArrayList<ModpackUpdateManager.VersionInfo> versions = ModpackUpdateManager.loadVersions(
-                        project,
-                        new ModpackUpdateManager.Listener() {
-                            @Override
-                            public void onStatus(@NonNull String message) {
-                                runOnUiThread(() -> setUpdateProgressMessage(message));
-                            }
-
-                            @Override
-                            public void onProgress(int current, int total) {
-                                runOnUiThread(() -> setUpdateProgress(current, total));
-                            }
-                        }
-                );
-                runOnUiThread(() -> {
-                    dismissUpdateProgressDialog();
-                    if (versions.isEmpty()) {
-                        Toast.makeText(this, "No versions were returned for " + project.title + ".", Toast.LENGTH_LONG).show();
-                        return;
-                    }
-                    showModpackVersionChooser(installed, project, versions);
-                });
-            } catch (Throwable throwable) {
-                Logging.e(TAG, "Unable to load modpack versions", throwable);
-                runOnUiThread(() -> {
-                    dismissUpdateProgressDialog();
-                    Toast.makeText(this, "Unable to load modpack versions: " + readableError(throwable), Toast.LENGTH_LONG).show();
-                });
-            }
-        }, "Load Modpack Versions");
-        thread.start();
-    }
-
-    private void showModpackVersionChooser(
-            @NonNull ModpackUpdateManager.InstalledModpackInfo installed,
-            @NonNull ModpackUpdateManager.ProjectMatch project,
-            @NonNull ArrayList<ModpackUpdateManager.VersionInfo> versions
-    ) {
-        enableFullscreen();
-
-        int screenHeight = getResources().getDisplayMetrics().heightPixels;
-        int screenWidth = getResources().getDisplayMetrics().widthPixels;
-        int availableHeight = Math.max(dp(360), screenHeight - dp(96));
-        int dialogHeight = Math.min(availableHeight, dp(760));
-        int dialogWidth = Math.max(dp(340), Math.min(screenWidth - dp(72), dp(860)));
-
-        FrameLayout dialogFrame = new FrameLayout(this);
-        dialogFrame.setBackgroundColor(LauncherDialogStyle.COLOR_DIALOG_BG);
-        dialogFrame.setLayoutParams(new ViewGroup.LayoutParams(dialogWidth, dialogHeight));
-
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(LauncherDialogStyle.COLOR_DIALOG_BG);
-        int padding = dp(18);
-        root.setPadding(padding, padding, padding, dp(12));
-        dialogFrame.addView(root, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dialogHeight
-        ));
-
-        TextView title = new TextView(this);
-        title.setText(project.title);
-        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24);
-        title.setTypeface(title.getTypeface(), android.graphics.Typeface.BOLD);
-        title.setTextColor(LauncherDialogStyle.COLOR_TEXT_PRIMARY);
-        title.setSingleLine(false);
-        title.setPadding(dp(2), 0, dp(2), dp(6));
-        root.addView(title, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-        ));
-
-        TextView info = new TextView(this);
-        info.setText("Pick the latest version or any specific version of this modpack. The list is not locked to the current Minecraft version, so a 1.16.5 pack can migrate to a 1.20.1 pack when the project provides one.");
-        info.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        info.setTextColor(LauncherDialogStyle.COLOR_TEXT_SECONDARY);
-        info.setPadding(dp(2), 0, dp(2), dp(12));
-        info.setSingleLine(false);
-        root.addView(info, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-        ));
-
-        LinearLayout selectedCard = addModpackDialogCard(root);
-        addModpackCardTitle(selectedCard, "Selected version");
-        TextView selectedText = new TextView(this);
-        selectedText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        selectedText.setTextColor(LauncherDialogStyle.COLOR_TEXT_SECONDARY);
-        selectedText.setPadding(0, 0, 0, dp(4));
-        selectedText.setSingleLine(false);
-        selectedCard.addView(selectedText, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-        ));
-
-        LinearLayout versionsCard = createModpackDialogCard();
-        addModpackCardTitle(versionsCard, "Available versions");
-        addModpackCardText(versionsCard, "Tap a version, then press Install selected. The first row is the latest version returned by the platform.", LauncherDialogStyle.COLOR_TEXT_MUTED, 12, false);
-
-        final int[] selectedIndex = new int[]{0};
-        updateSelectedModpackVersionText(selectedText, versions.get(0));
-
-        ScrollView versionScroll = new ScrollView(this);
-        versionScroll.setFillViewport(false);
-        versionScroll.setClipToPadding(false);
-        versionScroll.setOverScrollMode(View.OVER_SCROLL_IF_CONTENT_SCROLLS);
-        versionScroll.setPadding(0, dp(6), 0, dp(8));
-        versionScroll.setBackgroundColor(Color.TRANSPARENT);
-
-        LinearLayout versionRows = new LinearLayout(this);
-        versionRows.setOrientation(LinearLayout.VERTICAL);
-        versionRows.setPadding(0, 0, 0, dp(6));
-        versionScroll.addView(versionRows, new ScrollView.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-        ));
-
-        ArrayList<View> rowViews = new ArrayList<>();
-        for (int i = 0; i < versions.size(); i++) {
-            final int index = i;
-            View row = addModpackVersionRow(versionRows, versions.get(i), i == 0, () -> {
-                selectedIndex[0] = index;
-                updateSelectedModpackVersionText(selectedText, versions.get(index));
-                updateModpackVersionRowSelection(rowViews, selectedIndex[0]);
-            });
-            rowViews.add(row);
-        }
-        updateModpackVersionRowSelection(rowViews, selectedIndex[0]);
-
-        versionsCard.addView(versionScroll, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                0,
-                1f
-        ));
-
-        LinearLayout.LayoutParams versionsParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                0,
-                1f
-        );
-        versionsParams.setMargins(0, 0, 0, dp(10));
-        root.addView(versionsCard, versionsParams);
-
-        LinearLayout footer = new LinearLayout(this);
-        footer.setOrientation(LinearLayout.HORIZONTAL);
-        footer.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
-        footer.setPadding(0, dp(2), 0, 0);
-
-        final AlertDialog[] dialogRef = new AlertDialog[1];
-        TextView cancelButton = createModpackFooterButton("Cancel", false);
-        cancelButton.setOnClickListener(view -> {
-            AlertDialog dialog = dialogRef[0];
-            if (dialog != null) dialog.dismiss();
-        });
-
-        TextView installButton = createModpackFooterButton("Install selected", true);
-        installButton.setOnClickListener(view -> {
-            int index = Math.max(0, Math.min(selectedIndex[0], versions.size() - 1));
-            ModpackUpdateManager.VersionInfo selected = versions.get(index);
-            AlertDialog dialog = dialogRef[0];
-            if (dialog != null) dialog.dismiss();
-            showModpackBackupWarning(installed, project, selected);
-        });
-
-        LinearLayout.LayoutParams cancelParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-        );
-        cancelParams.rightMargin = dp(8);
-        footer.addView(cancelButton, cancelParams);
-        footer.addView(installButton, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-        ));
-
-        root.addView(footer, new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-        ));
-
-        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
-                .setView(dialogFrame)
-                .create();
-        dialogRef[0] = dialog;
-        showStyledModpackDialog(dialog);
-
-        Window window = dialog.getWindow();
-        if (window != null) {
-            window.setLayout(dialogWidth, ViewGroup.LayoutParams.WRAP_CONTENT);
-        }
-    }
-
     @NonNull
     private View addModpackVersionRow(
             @NonNull LinearLayout parent,
@@ -2064,157 +1860,6 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
         return row;
     }
 
-    private void updateModpackVersionRowSelection(@NonNull ArrayList<View> rowViews, int selectedIndex) {
-        for (int i = 0; i < rowViews.size(); i++) {
-            View row = rowViews.get(i);
-            boolean selected = i == selectedIndex;
-            GradientDrawable background = new GradientDrawable();
-            background.setColor(selected ? LauncherDialogStyle.COLOR_CARD_BG_PRESSED : LauncherDialogStyle.COLOR_CARD_BG);
-            background.setCornerRadius(dp(16));
-            background.setStroke(dp(selected ? 2 : 1), selected ? LauncherDialogStyle.COLOR_ACCENT : LauncherDialogStyle.COLOR_CARD_STROKE);
-            row.setBackground(background);
-        }
-    }
-
-    private void updateSelectedModpackVersionText(
-            @NonNull TextView selectedText,
-            @NonNull ModpackUpdateManager.VersionInfo version
-    ) {
-        selectedText.setText(version.versionLabel
-                + "\nMinecraft " + version.getMinecraftVersionsLabel()
-                + " • " + version.getLoadersLabel()
-                + (isBlank(version.datePublished) ? "" : "\n" + version.datePublished));
-    }
-
-    private void showModpackBackupWarning(
-            @NonNull ModpackUpdateManager.InstalledModpackInfo installed,
-            @NonNull ModpackUpdateManager.ProjectMatch project,
-            @NonNull ModpackUpdateManager.VersionInfo selectedVersion
-    ) {
-        enableFullscreen();
-
-        ScrollView scrollView = new ScrollView(this);
-        scrollView.setFillViewport(false);
-        scrollView.setBackgroundColor(LauncherDialogStyle.COLOR_DIALOG_BG);
-
-        LinearLayout root = createModpackDialogRoot(
-                scrollView,
-                "Backup worlds first",
-                "Updating a modpack can replace mods, configs, resource packs, shader packs, and other pack-managed files. A bad update can make worlds fail to load."
-        );
-
-        LinearLayout targetCard = addModpackDialogCard(root);
-        addModpackCardTitle(targetCard, "Selected update");
-        addModpackCardText(targetCard, project.platform.displayName + " • " + project.title, LauncherDialogStyle.COLOR_TEXT_SECONDARY, 14, false);
-        addModpackCardText(targetCard, "Current: " + installed.currentVersionLabel, LauncherDialogStyle.COLOR_TEXT_MUTED, 12, false);
-        addModpackCardText(targetCard, "Selected: " + selectedVersion.versionLabel, LauncherDialogStyle.COLOR_TEXT_MUTED, 12, false);
-        addModpackCardText(targetCard, "Minecraft: " + selectedVersion.getMinecraftVersionsLabel(), LauncherDialogStyle.COLOR_TEXT_MUTED, 12, false);
-        addModpackCardText(targetCard, "Loader: " + selectedVersion.getLoadersLabel(), LauncherDialogStyle.COLOR_TEXT_MUTED, 12, false);
-
-        LinearLayout savesCard = addModpackDialogCard(root);
-        addModpackCardTitle(savesCard, "World/saves behavior");
-        addModpackCardText(savesCard,
-                "DroidBridge keeps your existing saves folder. If the selected modpack includes saves, those saves are installed too. If a bundled world conflicts with an existing world folder, the bundled world is copied with a Pack World suffix instead of deleting your existing world.",
-                LauncherDialogStyle.COLOR_TEXT_SECONDARY,
-                13,
-                false
-        );
-
-        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
-                .setView(scrollView)
-                .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton("Update", (d, which) -> runModpackUpdate(installed, project, selectedVersion))
-                .create();
-        showStyledModpackDialog(dialog);
-    }
-
-    private void runModpackUpdate(
-            @NonNull ModpackUpdateManager.InstalledModpackInfo installed,
-            @NonNull ModpackUpdateManager.ProjectMatch project,
-            @NonNull ModpackUpdateManager.VersionInfo selectedVersion
-    ) {
-        if (rootDirectory == null || gameDirectory == null) {
-            Toast.makeText(this, "Missing instance folder.", Toast.LENGTH_LONG).show();
-            return;
-        }
-
-        setVersionUpdateInProgress(true);
-        showUpdateProgressDialog("Update Modpack", "Preparing modpack update...", false, 100, false);
-        Thread thread = new Thread(() -> {
-            try {
-                ModpackUpdateManager.UpdateResult packResult = ModpackUpdateManager.updateInstalledModpack(
-                        this,
-                        rootDirectory,
-                        gameDirectory,
-                        getGameVersionIdForContent(),
-                        loader,
-                        installed,
-                        project,
-                        selectedVersion,
-                        new ModpackUpdateManager.Listener() {
-                            @Override
-                            public void onStatus(@NonNull String message) {
-                                runOnUiThread(() -> setUpdateProgressMessage(message));
-                            }
-
-                            @Override
-                            public void onProgress(int current, int total) {
-                                runOnUiThread(() -> setUpdateProgress(current, total));
-                            }
-                        }
-                );
-
-                InstanceVersionUpdater.UpdateResult versionResult = null;
-                if (shouldUpdateInstanceBaseForModpack(packResult)) {
-                    String targetLoader = isBlank(packResult.loader) ? loader : packResult.loader;
-                    String targetMinecraft = isBlank(packResult.minecraftVersion) ? getGameVersionIdForContent() : packResult.minecraftVersion;
-                    runOnUiThread(() -> {
-                        setUpdateProgressMessage("Updating instance to Minecraft " + targetMinecraft + "...");
-                        setUpdateProgress(0, 4);
-                    });
-                    versionResult = InstanceVersionUpdater.updateInstanceVersion(
-                            this,
-                            rootDirectory,
-                            gameDirectory,
-                            instanceName,
-                            targetLoader,
-                            targetMinecraft,
-                            new InstanceVersionUpdater.Listener() {
-                                @Override
-                                public void onStatus(@NonNull String message) {
-                                    runOnUiThread(() -> setUpdateProgressMessage(message));
-                                }
-
-                                @Override
-                                public void onProgress(int current, int total) {
-                                    runOnUiThread(() -> setUpdateProgress(current, total));
-                                }
-                            }
-                    );
-                }
-
-                InstanceVersionUpdater.UpdateResult finalVersionResult = versionResult;
-                runOnUiThread(() -> applyModpackUpdateResult(packResult, finalVersionResult));
-            } catch (Throwable throwable) {
-                Logging.e(TAG, "Unable to update modpack", throwable);
-                runOnUiThread(() -> {
-                    dismissUpdateProgressDialog();
-                    setVersionUpdateInProgress(false);
-                    Toast.makeText(this, "Modpack update failed: " + readableError(throwable), Toast.LENGTH_LONG).show();
-                });
-            }
-        }, "Update Modpack");
-        thread.start();
-    }
-
-    private boolean shouldUpdateInstanceBaseForModpack(@NonNull ModpackUpdateManager.UpdateResult result) {
-        if (isBlank(result.minecraftVersion)) return false;
-        if (!result.minecraftVersion.equalsIgnoreCase(getGameVersionIdForContent())) return true;
-        String targetLoader = normalizeLoaderNameForUpdate(result.loader);
-        String currentLoader = normalizeLoaderNameForUpdate(loader);
-        return !isBlank(targetLoader) && !targetLoader.equals(currentLoader);
-    }
-
     @NonNull
     private String normalizeLoaderNameForUpdate(@Nullable String value) {
         if (value == null) return "";
@@ -2225,34 +1870,6 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
         if (normalized.contains("quilt")) return "quilt";
         if (normalized.contains("vanilla")) return "vanilla";
         return normalized;
-    }
-
-    private void applyModpackUpdateResult(
-            @NonNull ModpackUpdateManager.UpdateResult packResult,
-            @Nullable InstanceVersionUpdater.UpdateResult versionResult
-    ) {
-        if (versionResult != null) {
-            loader = versionResult.loader;
-            baseVersionId = versionResult.baseVersionId;
-            minecraftVersionId = versionResult.minecraftVersionId;
-            versionType = versionResult.versionType;
-            updateIntentExtras();
-            bindHeader();
-        }
-
-        dismissUpdateProgressDialog();
-        setVersionUpdateInProgress(false);
-        refreshContentList();
-        setResult(RESULT_OK);
-
-        String versionSuffix = versionResult == null
-                ? ""
-                : " · Minecraft " + versionResult.minecraftVersionId + (isBlank(versionResult.loaderVersion) ? "" : " · " + versionResult.loader + " " + versionResult.loaderVersion);
-        Toast.makeText(
-                this,
-                "Modpack updated to " + packResult.versionLabel + versionSuffix + formatModpackUpdateRemovedSuffix(packResult.removedOldFiles),
-                Toast.LENGTH_LONG
-        ).show();
     }
 
     @NonNull
@@ -4060,18 +3677,6 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
         });
     }
 
-    private void showContentLoadingSoon(@NonNull String title, @NonNull String message) {
-        cancelPendingContentLoadingOverlay();
-        pendingContentLoadingRunnable = () -> {
-            pendingContentLoadingRunnable = null;
-            if (binding == null || isFinishing() || isDestroyed()) return;
-            if (contentRefreshRunning || contentOperationRunning) {
-                setContentLoadingOverlayVisible(true, title, message);
-            }
-        };
-        mainHandler.postDelayed(pendingContentLoadingRunnable, 60L);
-    }
-
     private void showContentOperationOverlay(@NonNull String title, @NonNull String message) {
         cancelPendingContentLoadingOverlay();
         setContentLoadingOverlayVisible(true, title, message);
@@ -4209,7 +3814,8 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
             }
         }
 
-        if (selectedCategory == ResourceCategory.MODS && !supportsMods()) {
+        if (selectedCategory == ResourceCategory.MODS && !supportsMods() && !usesRustcraftMods()
+                && !usesHorizonMods()) {
             binding.textModsHint.setText(getString(R.string.mods_vanilla_hint));
         } else {
             binding.textModsHint.setText(countText);
@@ -4476,8 +4082,14 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
         String name = file.getName().toLowerCase(Locale.US);
         switch (category) {
             case MODS:
+                // Rust Craft's own mods: .rmod files (and mod folders) instead of jars.
+                if (usesRustcraftMods()) return RustcraftMods.isMod(file);
+                // The Rust engine's (Horizon, 26.3) own mods: .hmod files in horizon-mods/.
+                if (usesHorizonMods()) return HorizonInstanceMods.isModFile(file);
                 return file.isFile() && (name.endsWith(".jar") || name.endsWith(".jar.disabled"));
             case SHADERPACKS:
+                // Horizon also takes its own .hshader packs.
+                if (usesHorizonMods()) return HorizonInstanceMods.isShaderFile(file);
                 return file.isDirectory() || (file.isFile() && (name.endsWith(".zip") || name.endsWith(".zip.disabled")));
             case RESOURCEPACKS:
                 return file.isDirectory() || (file.isFile() && (name.endsWith(".zip") || name.endsWith(".zip.disabled")));
@@ -4497,6 +4109,8 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
     private File getDirectoryForCategory(@NonNull ResourceCategory category) {
         switch (category) {
             case MODS:
+                // The Rust engine reads its mods from horizon-mods/, not the jars' mods/.
+                if (gameDirectory != null && usesHorizonMods()) return HorizonInstanceMods.modsDir(gameDirectory);
                 return modsDirectory;
             case SHADERPACKS:
                 return shaderpacksDirectory;
@@ -4513,14 +4127,105 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
 
     private boolean canUploadSelectedCategory() {
         if (selectedCategory == ResourceCategory.SCREENSHOTS) return false;
-        return selectedCategory != ResourceCategory.MODS || supportsMods();
+        // A vanilla instance on a Rust engine takes that engine's own mods (.rmod for Rust Craft
+        // 1.0, .hmod for Horizon 26.3): the engine runs them itself, no mod loader needed.
+        return selectedCategory != ResourceCategory.MODS || supportsMods() || usesRustcraftMods()
+                || usesHorizonMods();
     }
 
     private boolean canBrowseSelectedCategory() {
         if (selectedCategory == ResourceCategory.SCREENSHOTS) return false;
         // Vanilla instances cannot install or browse mods. Resource packs, shader packs,
         // and worlds are still allowed because they do not require a mod loader.
-        return selectedCategory != ResourceCategory.MODS || supportsMods();
+        // (.rmod and .hmod mods browse DroidBridge's own mod lists, RustModBrowser, not Modrinth
+        // or CurseForge.)
+        return selectedCategory != ResourceCategory.MODS
+                || usesHorizonMods()
+                || usesRustcraftMods()
+                || supportsMods();
+    }
+
+    /**
+     * This instance plays on the Rust Craft engine (chosen in its settings), so its Mods list holds
+     * Rust Craft's .rmod mods: shown, uploaded, turned off (".disabled") and deleted like jars.
+     */
+    private boolean usesRustcraftMods() {
+        String version = isBlank(minecraftVersionId) ? baseVersionId : minecraftVersionId;
+        if (!RustcraftEngine.supportsInstance(version, loader)) return false;
+        return EnginePreferences.get(this, getPerInstanceSettingsKey()) == GameEngine.RUSTCRAFT;
+    }
+
+    /**
+     * This vanilla 26.3 instance plays on the Rust engine (Horizon, chosen in its settings), so
+     * its Mods list holds Horizon's .hmod mods (horizon-mods/, switched on and off with the
+     * game's own switch) and its Shader packs list Horizon's packs (one in use at a time).
+     */
+    private boolean usesHorizonMods() {
+        String version = isBlank(minecraftVersionId) ? baseVersionId : minecraftVersionId;
+        if (!HorizonEngine.supportsInstance(version, loader)) return false;
+        return EnginePreferences.get(this, getPerInstanceSettingsKey()) == GameEngine.HORIZON;
+    }
+
+    /**
+     * 1 for a Horizon mod, 2 for a Horizon shader pack, 0 for anything else (Java engine rules:
+     * a ".disabled" name). Cheap name checks first: this runs for every row.
+     */
+    private int horizonContentKind(@NonNull File file) {
+        if (gameDirectory == null) return 0;
+        File parent = file.getParentFile();
+        if (parent == null) return 0;
+        String folder = parent.getName();
+        boolean modFolder = HorizonAddons.MODS_DIR.equals(folder);
+        boolean shaderFolder = HorizonAddons.SHADERS_DIR.equals(folder);
+        if (!modFolder && !shaderFolder) return 0;
+        if (!usesHorizonMods()) return 0;
+        if (!safeCanonicalPath(parent.getParentFile() == null ? parent : parent.getParentFile())
+                .equals(safeCanonicalPath(gameDirectory))) {
+            return 0;
+        }
+        if (modFolder && HorizonInstanceMods.isModFile(file)) return 1;
+        if (shaderFolder && HorizonInstanceMods.isShaderFile(file)) return 2;
+        return 0;
+    }
+
+    /** Turns a Horizon mod or shader pack on or off with the game's own switch. Worker thread. */
+    private void applyHorizonContentActive(@NonNull File file, int kind, boolean active) throws IOException {
+        if (gameDirectory == null) throw new IOException("No game folder");
+        if (kind == 2) {
+            HorizonInstanceMods.setShaderOn(gameDirectory, file, active);
+        } else {
+            HorizonInstanceMods.setModOn(gameDirectory, file, active);
+        }
+    }
+
+    private void setHorizonContentActive(@NonNull InstanceContentItem item, int kind, boolean active) {
+        File oldFile = item.file;
+        String displayName = stripDisabledSuffix(oldFile.getName());
+        setContentOperationInProgress(true, active ? "Enabling content" : "Disabling content", displayName);
+        contentOperationExecutor.execute(() -> {
+            Throwable error = null;
+            try {
+                applyHorizonContentActive(oldFile, kind, active);
+            } catch (Throwable throwable) {
+                error = throwable;
+                Logging.e(TAG, "Unable to turn Horizon content " + (active ? "on" : "off") + ": "
+                        + oldFile.getAbsolutePath(), throwable);
+            }
+            Throwable finalError = error;
+            mainHandler.post(() -> {
+                if (binding == null || isFinishing() || isDestroyed()) return;
+                setContentOperationInProgress(false, "", "");
+                // (a shader pack turned on turns the others off: the whole list changes)
+                refreshContentList();
+                if (finalError == null) {
+                    Toast.makeText(this, getString(active ? R.string.instance_content_enabled_success
+                            : R.string.instance_content_disabled_success, displayName), Toast.LENGTH_SHORT).show();
+                } else {
+                    Toast.makeText(this, getString(R.string.instance_content_toggle_failed, displayName) + ": "
+                            + readableError(finalError), Toast.LENGTH_LONG).show();
+                }
+            });
+        });
     }
 
     private boolean supportsMods() {
@@ -4528,8 +4233,30 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
     }
 
     private void browseSelectedContent() {
+        if (selectedCategory == ResourceCategory.MODS && usesHorizonMods()) {
+            // DroidBridge's own Rust engine mods (published with the Rust Mods Admin app).
+            if (gameDirectory == null) {
+                Toast.makeText(this, "This instance's folder isn't ready yet.", Toast.LENGTH_LONG).show();
+                return;
+            }
+            RustModBrowser.show(this, gameDirectory, this::refreshContentList, this::showFullscreenSafeDialog);
+            return;
+        }
+        if (selectedCategory == ResourceCategory.MODS && usesRustcraftMods()) {
+            // DroidBridge's own Rust Craft mods (published with the Rust Mods Admin app).
+            if (gameDirectory == null) {
+                Toast.makeText(this, "This instance's folder isn't ready yet.", Toast.LENGTH_LONG).show();
+                return;
+            }
+            RustModBrowser.showRustcraft(this, gameDirectory, this::refreshContentList,
+                    this::showFullscreenSafeDialog);
+            return;
+        }
         if (!canBrowseSelectedCategory()) {
-            if (selectedCategory == ResourceCategory.MODS && !supportsMods()) {
+            if (selectedCategory == ResourceCategory.MODS && usesHorizonMods()) {
+                Toast.makeText(this, "Rust engine mods (.hmod) aren't on Modrinth or CurseForge: add them with "
+                        + "Upload, or from the Mod catalog in Horizon add-ons.", Toast.LENGTH_LONG).show();
+            } else if (selectedCategory == ResourceCategory.MODS && !supportsMods()) {
                 Toast.makeText(this, R.string.mods_vanilla_hint, Toast.LENGTH_LONG).show();
             }
             return;
@@ -4735,6 +4462,8 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
 
     @NonNull
     private String readModDetailsForInfoDialog(@NonNull File file) {
+        if (RustcraftMods.isMod(file)) return RustcraftMods.details(file);
+        if (HorizonInstanceMods.isModFile(file)) return HorizonInstanceMods.details(file);
         if (!file.isFile()) return "";
         try (ZipFile zip = new ZipFile(file)) {
             String fabricJson = readZipEntryText(zip, "fabric.mod.json");
@@ -4948,6 +4677,11 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
             setResourcePackActive(item, enabled);
             return;
         }
+        int horizonKind = horizonContentKind(item.file);
+        if (horizonKind != 0) {
+            setHorizonContentActive(item, horizonKind, enabled);
+            return;
+        }
 
         File parent = item.file.getParentFile();
         if (parent == null) {
@@ -5122,6 +4856,7 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
     }
 
     private boolean canCheckUpdatesForSelectedCategory() {
+        if (selectedCategory == ResourceCategory.MODS && (usesRustcraftMods() || usesHorizonMods())) return false;
         return toModManagerContentType(selectedCategory) != null && gameDirectory != null;
     }
 
@@ -5296,6 +5031,12 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
                 try {
                     if (isSelectableResourcePack(item.file)) {
                         applyResourcePackActive(item.file, enabled, resourcePackVersion);
+                        changed++;
+                        continue;
+                    }
+                    int horizonKind = horizonContentKind(item.file);
+                    if (horizonKind != 0) {
+                        applyHorizonContentActive(item.file, horizonKind, enabled);
                         changed++;
                         continue;
                     }
@@ -6467,7 +6208,10 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
     private void dismissUpdateProgressDialog() { if (updateProgressDialog != null) { updateProgressDialog.dismiss(); updateProgressDialog = null; } updateProgressMessage = null; updateProgressBar = null; getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON); }
 
     private void pickSelectedContent() {
-        if (selectedCategory == ResourceCategory.MODS && !supportsMods()) {
+        boolean rustMods = selectedCategory == ResourceCategory.MODS && (usesRustcraftMods() || usesHorizonMods());
+        // (.rmod, .hmod and .hshader files have no MIME type of their own: any file, checked once picked)
+        boolean anyFile = rustMods || (selectedCategory == ResourceCategory.SHADERPACKS && usesHorizonMods());
+        if (selectedCategory == ResourceCategory.MODS && !supportsMods() && !rustMods) {
             Toast.makeText(this, R.string.mods_vanilla_hint, Toast.LENGTH_LONG).show();
             return;
         }
@@ -6478,7 +6222,7 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType(pendingImportCategory.mimeType);
         intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-        if (pendingImportCategory.mimeTypes.length > 0) {
+        if (!anyFile && pendingImportCategory.mimeTypes.length > 0) {
             intent.putExtra(Intent.EXTRA_MIME_TYPES, pendingImportCategory.mimeTypes);
         }
 
@@ -6589,6 +6333,15 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
 
     private void importSelectedContent(@NonNull ArrayList<Uri> uris, @NonNull ResourceCategory category) {
         File targetDirectory = getDirectoryForCategory(category);
+        if (category == ResourceCategory.MODS && usesRustcraftMods()) {
+            importRustcraftMods(uris, targetDirectory);
+            return;
+        }
+        if (category == ResourceCategory.MODS && usesHorizonMods() && gameDirectory != null) {
+            importHorizonMods(uris, gameDirectory);
+            return;
+        }
+        boolean horizonShaders = category == ResourceCategory.SHADERPACKS && usesHorizonMods();
         int added = 0;
         try {
             if (!targetDirectory.exists() && !targetDirectory.mkdirs()) {
@@ -6599,7 +6352,11 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
                 if (category == ResourceCategory.WORLDS) {
                     importWorldArchive(uri, targetDirectory);
                 } else {
-                    String fileName = sanitizeImportedFileName(resolveDisplayName(uri), category.defaultExtension);
+                    String shownName = resolveDisplayName(uri);
+                    // a Horizon .hshader keeps its own extension (not ".zip")
+                    String extension = horizonShaders
+                            && shownName.toLowerCase(Locale.US).endsWith(".hshader") ? null : category.defaultExtension;
+                    String fileName = sanitizeImportedFileName(shownName, extension);
                     copyUriToFile(uri, uniqueTargetFile(targetDirectory, fileName));
                 }
                 added++;
@@ -6622,6 +6379,64 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
                     Toast.LENGTH_LONG
             ).show());
         }
+    }
+
+    /** .rmod files into the mods folder, each checked (mod.toml and mod.wasm) and named by its id. Worker thread. */
+    private void importRustcraftMods(@NonNull ArrayList<Uri> uris, @NonNull File modsDirectory) {
+        int added = 0;
+        StringBuilder problems = new StringBuilder();
+        String last = null;
+        for (Uri uri : uris) {
+            try {
+                RustcraftMods.Installed done = RustcraftMods.install(getContentResolver(), uri, modsDirectory);
+                last = done.message();
+                added++;
+            } catch (Throwable throwable) {
+                Logging.e(TAG, "Unable to import a Rust Craft mod", throwable);
+                if (problems.length() > 0) problems.append('\n');
+                problems.append(readableError(throwable));
+            }
+        }
+        int finalAdded = added;
+        String message = problems.length() > 0
+                ? (added > 0 ? "Imported " + added + "; " : "") + problems
+                : added == 1 && last != null ? last
+                : getString(R.string.instance_content_imported_value, added, getCategoryPluralLabel(ResourceCategory.MODS));
+        runOnUiThread(() -> {
+            if (finalAdded > 0) refreshContentList();
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+        });
+    }
+
+    /**
+     * .hmod files into horizon-mods/, each checked by the game's own check, named by its id and
+     * switched on; a Java jar becomes DroidBridge's own mod for it where this build has one.
+     * Worker thread.
+     */
+    private void importHorizonMods(@NonNull ArrayList<Uri> uris, @NonNull File gameDir) {
+        int added = 0;
+        StringBuilder problems = new StringBuilder();
+        String last = null;
+        for (Uri uri : uris) {
+            try {
+                HorizonInstanceMods.Installed done = HorizonInstanceMods.install(this, uri, gameDir);
+                last = done.message;
+                added++;
+            } catch (Throwable throwable) {
+                Logging.e(TAG, "Unable to import a Rust engine mod", throwable);
+                if (problems.length() > 0) problems.append('\n');
+                problems.append(readableError(throwable));
+            }
+        }
+        int finalAdded = added;
+        String message = problems.length() > 0
+                ? (added > 0 ? "Imported " + added + "; " : "") + problems
+                : added == 1 && last != null ? last
+                : getString(R.string.instance_content_imported_value, added, getCategoryPluralLabel(ResourceCategory.MODS));
+        runOnUiThread(() -> {
+            if (finalAdded > 0) refreshContentList();
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+        });
     }
 
     @NonNull
@@ -6961,6 +6776,8 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
 
     @Nullable
     private String readModName(@NonNull File file) {
+        if (RustcraftMods.isMod(file)) return RustcraftMods.title(file);
+        if (HorizonInstanceMods.isModFile(file)) return HorizonInstanceMods.title(file);
         String nestedOrEmbeddedName = ModJarMetadataExtractor.readDisplayName(file);
         if (!isBlank(nestedOrEmbeddedName)) return nestedOrEmbeddedName;
 
@@ -7408,6 +7225,12 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
         icon = decodeZipBitmap(zip, extractTomlString(neoForgeToml, "logoFile"));
         if (icon != null) return icon;
 
+        // a Rust Craft .rmod or a Horizon .hmod: its optional icon.png beside its manifest
+        if (zip.getEntry("mod.toml") != null || zip.getEntry(HorizonAddons.MOD_MANIFEST) != null) {
+            icon = decodeZipBitmap(zip, "icon.png");
+            if (icon != null) return icon;
+        }
+
         return null;
     }
 
@@ -7515,6 +7338,9 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
 
     private boolean isContentItemEnabled(@NonNull File file) {
         if (file.getName().toLowerCase(Locale.US).endsWith(".disabled")) return false;
+        int horizonKind = horizonContentKind(file);
+        if (horizonKind == 1) return HorizonInstanceMods.isModOn(gameDirectory, file);
+        if (horizonKind == 2) return HorizonInstanceMods.isShaderOn(gameDirectory, file);
         if (isSelectableResourcePack(file) && gameDirectory != null) {
             // A resource pack is "on" when the game uses it (options.txt), not merely present.
             return ResourcePackSelection.isSelected(gameDirectory, getGameVersionIdForContent(), file.getName());
@@ -8701,6 +8527,8 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
                 () -> {
                     perInstanceSettingsDialog = null;
                     enableFullscreen();
+                    // the engine may have changed: the Mods list switches between jars, .rmods and .hmods
+                    if (binding != null && gameDirectory != null) refreshContentList();
                 }
         );
         perInstanceSettingsDialog.show();
@@ -8721,17 +8549,6 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
                 safeMinecraftVersion,
                 iconFile
         );
-    }
-
-    private void savePerInstanceSettingsAliases(
-            @NonNull String settingsKey,
-            @NonNull InstanceLaunchSettings.Settings settings
-    ) {
-        InstanceLaunchSettings.save(this, settingsKey, settings);
-    }
-
-    private void clearPerInstanceSettingsAliases(@NonNull String settingsKey) {
-        InstanceLaunchSettings.clear(this, settingsKey);
     }
 
     @NonNull
@@ -8773,105 +8590,6 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
         );
         params.topMargin = topMargin;
         return params;
-    }
-
-    private int resolveRendererSelectionIndex(
-            @NonNull ArrayList<RendererInterface> renderers,
-            @Nullable String selectedRendererId
-    ) {
-        if (isBlank(selectedRendererId)) return 0;
-        for (int i = 0; i < renderers.size(); i++) {
-            if (selectedRendererId.equals(renderers.get(i).getUniqueIdentifier())) {
-                return i + 1;
-            }
-        }
-        return 0;
-    }
-
-    private void updatePerInstanceRamSliderState(@NonNull SeekBar ramSlider, boolean enabled) {
-        ramSlider.setEnabled(enabled);
-        ramSlider.setAlpha(enabled ? 1f : 0.45f);
-    }
-
-    private int calculatePerInstanceRamStepCount(int minMemoryMb, int maxMemoryMb, int stepMb) {
-        if (maxMemoryMb <= minMemoryMb) return 0;
-        return Math.max(1, (int) Math.ceil((maxMemoryMb - minMemoryMb) / (float) stepMb));
-    }
-
-    private int perInstanceRamMemoryFromProgress(int progress, int minMemoryMb, int stepMb, int maxMemoryMb) {
-        long requestedMb = (long) minMemoryMb + ((long) Math.max(0, progress) * (long) stepMb);
-        if (requestedMb > maxMemoryMb) requestedMb = maxMemoryMb;
-        return MemoryAllocationUtils.clampToAllowedRam(this, (int) requestedMb);
-    }
-
-    private int perInstanceRamProgressFromMemory(int memoryMb, int minMemoryMb, int stepMb, int stepCount) {
-        int safeMemoryMb = MemoryAllocationUtils.clampToAllowedRam(this, memoryMb);
-        int progress = Math.round((safeMemoryMb - minMemoryMb) / (float) Math.max(1, stepMb));
-        return Math.max(0, Math.min(progress, stepCount));
-    }
-
-    private void updatePerInstanceRamText(
-            @NonNull TextView ramValue,
-            boolean customRam,
-            int memoryMb,
-            int maxMemoryMb
-    ) {
-        if (!customRam) {
-            int globalMb = MemoryAllocationUtils.resolveAllocatedMemoryMb(this);
-            ramValue.setText("Using launcher default: " + globalMb + " MB (" + formatGb(globalMb) + " GB)");
-            return;
-        }
-
-        ramValue.setText("Custom RAM: " + memoryMb + " MB (" + formatGb(memoryMb) + " GB)"
-                + " · Max recommended: " + maxMemoryMb + " MB");
-    }
-
-    private void showPerInstanceRamInputDialog(
-            @NonNull TextView ramValue,
-            @NonNull SeekBar ramSlider,
-            @NonNull SwitchMaterial customRamSwitch,
-            @NonNull boolean[] useCustomRam,
-            @NonNull int[] selectedRamMb,
-            int minMemoryMb,
-            int stepMb,
-            int stepCount,
-            int maxMemoryMb
-    ) {
-        EditText input = new EditText(this);
-        input.setInputType(InputType.TYPE_CLASS_NUMBER);
-        input.setSingleLine(true);
-        input.setSelectAllOnFocus(true);
-        input.setText(String.valueOf(useCustomRam[0]
-                ? selectedRamMb[0]
-                : MemoryAllocationUtils.resolveAllocatedMemoryMb(this)));
-
-        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
-                .setTitle("Custom RAM")
-                .setMessage("Enter RAM in MB. Allowed range: " + minMemoryMb + " - " + maxMemoryMb + " MB.")
-                .setView(input)
-                .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(android.R.string.ok, null)
-                .create();
-
-        dialog.setOnShowListener(value -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
-            int parsed;
-            try {
-                parsed = Integer.parseInt(input.getText() == null ? "" : input.getText().toString().trim());
-            } catch (Throwable ignored) {
-                input.setError("Enter a number in MB.");
-                return;
-            }
-
-            selectedRamMb[0] = MemoryAllocationUtils.clampToAllowedRam(this, parsed);
-            useCustomRam[0] = true;
-            customRamSwitch.setChecked(true);
-            updatePerInstanceRamSliderState(ramSlider, true);
-            ramSlider.setProgress(perInstanceRamProgressFromMemory(selectedRamMb[0], minMemoryMb, stepMb, stepCount));
-            updatePerInstanceRamText(ramValue, true, selectedRamMb[0], maxMemoryMb);
-            dialog.dismiss();
-        }));
-
-        showFullscreenSafeDialog(dialog);
     }
 
     @NonNull

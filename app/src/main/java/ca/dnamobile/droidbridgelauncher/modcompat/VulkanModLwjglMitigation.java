@@ -357,23 +357,6 @@ public final class VulkanModLwjglMitigation {
         return false;
     }
 
-    private static boolean isAlreadyPatched(
-            @NonNull File jarFile,
-            boolean stripLegacyVmaShaderc
-    ) throws IOException {
-        try (ZipFile zipFile = new ZipFile(jarFile)) {
-            if (zipFile.getEntry(MARKER_ENTRY) != null) return true;
-
-            // Version-1 patches only stripped lwjgl-vulkan. That is enough for modern
-            // VulkanMod, but legacy 1.20.1 VulkanMod still needs its bundled
-            // lwjgl-vma/lwjgl-shaderc 3.3.2 jars removed when the Android helper is
-            // present, otherwise it crashes with VmaVulkanFunctions/Struct mismatch.
-            boolean hasOldMarker = zipFile.getEntry(LEGACY_MARKER_ENTRY) != null
-                    || zipFile.getEntry(ZALITH_LEGACY_MARKER_ENTRY) != null;
-            return hasOldMarker && !stripLegacyVmaShaderc;
-        }
-    }
-
     private static void patchVulkanModJar(
             @NonNull File jarFile,
             boolean stripLegacyVmaShaderc,
@@ -2145,14 +2128,6 @@ public final class VulkanModLwjglMitigation {
             Logger.appendToLog(stripTrailingLineBreaks(message));
         } catch (Throwable ignored) {
             Logging.i(TAG, message);
-        }
-    }
-
-    private static void appendBlankLogLine() {
-        try {
-            Logger.appendToLog("");
-        } catch (Throwable ignored) {
-            Logging.i(TAG, "");
         }
     }
 

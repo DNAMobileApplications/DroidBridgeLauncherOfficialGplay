@@ -43,7 +43,7 @@ public final class HorizonGraphics {
         @NonNull public final String id;
         @NonNull public final String label;
 
-        Choice(@NonNull String id, @NonNull String label) {
+        public Choice(@NonNull String id, @NonNull String label) {
             this.id = id;
             this.label = label;
         }

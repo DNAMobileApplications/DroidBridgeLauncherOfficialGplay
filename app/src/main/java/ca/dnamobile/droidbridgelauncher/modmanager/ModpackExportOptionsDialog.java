@@ -17,7 +17,6 @@ import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
-import android.os.Build;
 import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.View;
@@ -37,7 +36,6 @@ import java.io.File;
 import java.util.Locale;
 
 import ca.dnamobile.droidbridgelauncher.modmanager.ModpackExportManager;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import ca.dnamobile.droidbridgelauncher.ui.LauncherDialogStyle;
 

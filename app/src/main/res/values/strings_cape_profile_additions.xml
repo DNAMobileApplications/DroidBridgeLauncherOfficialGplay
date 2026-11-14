@@ -19,6 +19,7 @@
     <string name="microsoft_cape_apply">Apply</string>
     <string name="player_model_preview">Player model preview</string>
     <string name="account_profile_controls_hint">Skin and cape controls only appear when a Microsoft profile session is available.</string>
+    <string name="account_xbox_profile_hint">New account? Don\'t forget to log in at minecraft.net first and set your Xbox profile username (gamertag). Sign-in fails until it\'s set.</string>
     <string name="main_player_head_signed_in">Signed-in player profile. Opens account settings.</string>
     <string name="main_player_head_signed_out">Signed out. Opens account settings.</string>
 </resources>

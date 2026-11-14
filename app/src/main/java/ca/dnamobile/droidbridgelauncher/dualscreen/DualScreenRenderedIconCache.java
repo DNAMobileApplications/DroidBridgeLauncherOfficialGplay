@@ -156,30 +156,6 @@ final class DualScreenRenderedIconCache {
     }
 
 
-    private boolean isSpecialOrComplexItem(@Nullable String raw) {
-        if (raw == null) return false;
-        String value = raw.toLowerCase(Locale.ROOT);
-        return value.contains("chest")
-                || value.contains("bed")
-                || value.contains("shulker")
-                || value.contains("banner")
-                || value.contains("decorated_pot")
-                || value.contains("flower_pot")
-                || value.contains("pottery_sherd")
-                || value.contains("stonecutter")
-                || value.contains("scaffolding")
-                || value.contains("grindstone")
-                || value.contains("anvil")
-                || value.contains("trapdoor")
-                || value.contains("stairs")
-                || value.contains("_wall")
-                || value.contains(":wall")
-                || value.contains("_fence")
-                || value.contains(":fence")
-                || value.contains("_button")
-                || value.contains(":button");
-    }
-
     @NonNull
     private String[] deterministicNames(@Nullable String itemId, @Nullable String itemKey, @Nullable String iconPath) {
         ArrayList<String> names = new ArrayList<>();

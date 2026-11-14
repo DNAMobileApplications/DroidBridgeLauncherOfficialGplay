@@ -199,13 +199,6 @@ public final class NativeMesaSodiumExtraMixinMitigation {
         return value != null ? value : "<null>";
     }
 
-    private static void appendBlankLogLine() {
-        try {
-            Logger.appendToLog("");
-        } catch (Throwable ignored) {
-        }
-    }
-
     private static void appendLog(@NonNull String message) {
         try {
             Logger.appendToLog(message);

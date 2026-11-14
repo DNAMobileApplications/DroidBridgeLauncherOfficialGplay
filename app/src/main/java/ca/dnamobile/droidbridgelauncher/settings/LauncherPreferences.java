@@ -43,6 +43,8 @@ public final class LauncherPreferences {
     private static final String KEY_SELECTED_VULKAN_DRIVER_NAME = "selected_vulkan_driver_name";
     private static final String KEY_USE_SYSTEM_VULKAN_DRIVER = "use_system_vulkan_driver";
     private static final String KEY_ENABLE_VULKAN_VSYNC = "enable_vulkan_vsync";
+    private static final String KEY_FREEDRENO_UBWC_FLAG_HINT = "freedreno_ubwc_flag_hint";
+    private static final String KEY_FREEDRENO_SYSMEM_RENDERING = "freedreno_sysmem_rendering";
     private static final String KEY_USE_OPENGL_FOR_MC_26_PLUS = "use_opengl_for_mc_26_plus";
     private static final String KEY_SHOW_GAME_LOG_OVERLAY = "show_game_log_overlay";
     private static final String KEY_GAME_LOG_OVERLAY_X = "game_log_overlay_x";
@@ -480,6 +482,24 @@ public final class LauncherPreferences {
 
     public static void setVulkanVsyncEnabled(@NonNull Context context, boolean enabled) {
         saveBoolean(context, KEY_ENABLE_VULKAN_VSYNC, enabled);
+    }
+
+    /** Freedreno/Turnip: force the texture-unit UBWC flag hint (see FreedrenoCompatOptions). */
+    public static boolean isFreedrenoUbwcFlagHintEnabled(@NonNull Context context) {
+        return prefs(context).getBoolean(KEY_FREEDRENO_UBWC_FLAG_HINT, false);
+    }
+
+    public static void setFreedrenoUbwcFlagHintEnabled(@NonNull Context context, boolean enabled) {
+        saveBoolean(context, KEY_FREEDRENO_UBWC_FLAG_HINT, enabled);
+    }
+
+    /** Freedreno/Turnip: render straight to memory instead of tiled GMEM (see FreedrenoCompatOptions). */
+    public static boolean isFreedrenoSysmemRenderingEnabled(@NonNull Context context) {
+        return prefs(context).getBoolean(KEY_FREEDRENO_SYSMEM_RENDERING, false);
+    }
+
+    public static void setFreedrenoSysmemRenderingEnabled(@NonNull Context context, boolean enabled) {
+        saveBoolean(context, KEY_FREEDRENO_SYSMEM_RENDERING, enabled);
     }
 
     /**
@@ -1402,13 +1422,40 @@ public final class LauncherPreferences {
             );
         }
 
-        int legacyValue = prefs(context).getInt(
-                KEY_GAME_RESOLUTION_SCALE_PERCENT,
-                DEFAULT_GAME_RESOLUTION_SCALE_PERCENT
-        );
+        SharedPreferences legacyPreferences = prefs(context);
+        int legacyValue = legacyPreferences.contains(KEY_GAME_RESOLUTION_SCALE_PERCENT)
+                ? legacyPreferences.getInt(KEY_GAME_RESOLUTION_SCALE_PERCENT, DEFAULT_GAME_RESOLUTION_SCALE_PERCENT)
+                : firstRunGameResolutionScalePercent(context);
         int clampedLegacyValue = clampGameResolutionScalePercent(legacyValue);
         setGameResolutionScalePercent(context, clampedLegacyValue);
         return clampedLegacyValue;
+    }
+
+    /** First-run render scale for phones that have never saved one. */
+    public static final int LOW_END_GAME_RESOLUTION_SCALE_PERCENT = 75;
+
+    /**
+     * The starting render scale on a fresh install. Phones with 6 GB of RAM or less (Helio
+     * G99/Samsung A16 class) are almost always GPU-bound at native resolution, and 75% renders
+     * about 44% fewer pixels, so they start there. Everyone else, and every player who ever
+     * moved the slider, keeps their own value; the slider still goes back to 100%.
+     */
+    private static int firstRunGameResolutionScalePercent(@NonNull Context context) {
+        try {
+            android.app.ActivityManager activityManager =
+                    (android.app.ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
+            if (activityManager == null) return DEFAULT_GAME_RESOLUTION_SCALE_PERCENT;
+            if (activityManager.isLowRamDevice()) return LOW_END_GAME_RESOLUTION_SCALE_PERCENT;
+            android.app.ActivityManager.MemoryInfo memoryInfo = new android.app.ActivityManager.MemoryInfo();
+            activityManager.getMemoryInfo(memoryInfo);
+            // totalMem is what the kernel reports, a little under the marketing size.
+            long sixGb = 6L * 1024L * 1024L * 1024L;
+            if (memoryInfo.totalMem > 0L && memoryInfo.totalMem <= sixGb) {
+                return LOW_END_GAME_RESOLUTION_SCALE_PERCENT;
+            }
+        } catch (Throwable ignored) {
+        }
+        return DEFAULT_GAME_RESOLUTION_SCALE_PERCENT;
     }
 
     public static void setGameResolutionScalePercent(@NonNull Context context, int percent) {

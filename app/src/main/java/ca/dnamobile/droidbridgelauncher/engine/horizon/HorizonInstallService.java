@@ -39,6 +39,28 @@ public final class HorizonInstallService extends Service {
 
     public static final String EXTRA_RECEIVER = "ca.dnamobile.droidbridgelauncher.horizon.install.RECEIVER";
     public static final String EXTRA_HOME = "ca.dnamobile.droidbridgelauncher.horizon.install.HOME";
+    /**
+     * Only start the :horizon process and load the engine library (a read-only readiness check,
+     * nothing downloads), so it is warm by the time the account checks finish and the launch
+     * really asks. No receiver; nothing is reported.
+     */
+    public static final String EXTRA_PREWARM = "ca.dnamobile.droidbridgelauncher.horizon.install.PREWARM";
+
+    /**
+     * Starts the engine process in the background while the launcher checks the account, so
+     * the process start and the engine library load no longer add to the wait after it.
+     */
+    public static void prewarm(@NonNull android.content.Context context, @NonNull File home) {
+        try {
+            Intent intent = new Intent(context, HorizonInstallService.class);
+            intent.putExtra(EXTRA_PREWARM, true);
+            intent.putExtra(EXTRA_HOME, home.getAbsolutePath());
+            context.startService(intent);
+        } catch (Throwable throwable) {
+            // Only an optimization: the real request starts the process as before.
+            Log.w(TAG, "Could not prewarm the Horizon engine process", throwable);
+        }
+    }
 
     public static final int RESULT_PROGRESS = 1;
     public static final int RESULT_READY = 2;
@@ -67,8 +89,12 @@ public final class HorizonInstallService extends Service {
 
     @Override
     public int onStartCommand(@Nullable Intent intent, int flags, int startId) {
-        ResultReceiver newReceiver = intent == null ? null : intent.getParcelableExtra(EXTRA_RECEIVER);
         String home = intent == null ? null : intent.getStringExtra(EXTRA_HOME);
+        if (intent != null && intent.getBooleanExtra(EXTRA_PREWARM, false)) {
+            prewarmInProcess(home, startId);
+            return START_NOT_STICKY;
+        }
+        ResultReceiver newReceiver = intent == null ? null : intent.getParcelableExtra(EXTRA_RECEIVER);
         if (newReceiver == null || home == null || home.trim().isEmpty()) {
             stopSelf(startId);
             return START_NOT_STICKY;
@@ -93,6 +119,27 @@ public final class HorizonInstallService extends Service {
         }, "DroidBridgeHorizonInstall");
         worker.start();
         return START_NOT_STICKY;
+    }
+
+    /** Loads the engine library off the main thread; a real request meanwhile keeps the service. */
+    private void prewarmInProcess(@Nullable String home, int startId) {
+        Thread worker = new Thread(() -> {
+            try {
+                if (home != null && !home.trim().isEmpty()) {
+                    // Loads libhorizon_android.so; the answer itself is asked again later.
+                    HorizonInstaller.isReady(home);
+                }
+            } catch (Throwable throwable) {
+                Log.w(TAG, "Horizon engine prewarm failed", throwable);
+            } finally {
+                synchronized (lock) {
+                    // stopSelf(startId) is ignored once a newer request (a real install) came.
+                    if (!running) stopSelf(startId);
+                }
+            }
+        }, "DroidBridgeHorizonPrewarm");
+        worker.setDaemon(true);
+        worker.start();
     }
 
     private void runInstall(@NonNull File home) {

@@ -12,6 +12,15 @@
     <string name="instance_tab_modified">Modified</string>
     <string name="instance_tab_snapshot">Snapshot</string>
     <string name="instance_tab_shared">Shared</string>
+    <string name="instance_sort_menu_title">Sort instances</string>
+    <string name="instance_sort_all">All</string>
+    <string name="instance_sort_oldest">Oldest to newest</string>
+    <string name="instance_sort_newest">Newest to oldest</string>
+    <string name="instance_sort_installed">Recently installed</string>
+    <string name="instance_sort_tab_oldest">Oldest first</string>
+    <string name="instance_sort_tab_newest">Newest first</string>
+    <string name="instance_sort_tab_installed">Recently installed</string>
+    <string name="instance_sort_tab_description">%1$s. Tap the arrow for sort options.</string>
     <string name="button_multi_select_instances">Select</string>
     <string name="button_delete_selected_instances">Delete selected</string>
     <string name="button_cancel_multi_select_instances">Cancel selection</string>

@@ -379,13 +379,6 @@ public final class ModpackSearchApiClient {
         }
     }
 
-    private static void addFirstFeaturedMatch(
-            @NonNull ArrayList<ModrinthProject> hits,
-            @NonNull ArrayList<ModrinthProject> candidates
-    ) {
-        addFirstOptiMobileMatch(hits, candidates);
-    }
-
     private static void addFirstOptiMobileMatch(
             @NonNull ArrayList<ModrinthProject> hits,
             @NonNull ArrayList<ModrinthProject> candidates
@@ -446,10 +439,6 @@ public final class ModpackSearchApiClient {
             if (isVulkanDroidModpack(project)) return true;
         }
         return false;
-    }
-
-    private static boolean isFeaturedModpack(@Nullable ModrinthProject project) {
-        return isOptiMobileModpack(project) || isVulkanDroidModpack(project);
     }
 
     private static boolean isOptiMobileModpack(@Nullable ModrinthProject project) {

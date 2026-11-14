@@ -509,8 +509,4 @@ public final class DualScreenViewRecorder {
             Thread.currentThread().interrupt();
         }
     }
-
-    private static int makeEven(int value) {
-        return (value & 1) == 0 ? value : Math.max(2, value - 1);
-    }
 }

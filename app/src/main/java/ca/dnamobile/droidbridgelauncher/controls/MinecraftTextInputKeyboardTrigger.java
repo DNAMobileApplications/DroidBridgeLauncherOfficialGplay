@@ -76,7 +76,7 @@ public final class MinecraftTextInputKeyboardTrigger {
     }
 
     public static void onMenuPointerConfirm(@NonNull View source, float x, float y, boolean grabbed) {
-        if (grabbed || TouchKeyboardHelper.isKeyboardShowing()) return;
+        if (grabbed || TouchKeyboardHelper.isKeyboardReallyShowing()) return;
 
         scheduleKeybindCaptureProbe(source);
 
@@ -100,7 +100,7 @@ public final class MinecraftTextInputKeyboardTrigger {
      * Mouse-only users still get the Android IME automatically.
      */
     public static void onHardwareMenuPointerConfirm(@NonNull View source, float x, float y, boolean grabbed) {
-        if (grabbed || TouchKeyboardHelper.isKeyboardShowing()) return;
+        if (grabbed || TouchKeyboardHelper.isKeyboardReallyShowing()) return;
 
         scheduleKeybindCaptureProbe(source);
         if (hasAlphabeticHardwareKeyboard(source)) {
@@ -166,7 +166,7 @@ public final class MinecraftTextInputKeyboardTrigger {
     }
 
     public static void onPotentialControllerConfirm(@NonNull View source, @Nullable KeyEvent event, boolean grabbed) {
-        if (event == null || grabbed || TouchKeyboardHelper.isKeyboardShowing()) return;
+        if (event == null || grabbed || TouchKeyboardHelper.isKeyboardReallyShowing()) return;
         if (!isControllerConfirmRelease(event)) return;
 
         long now = SystemClock.uptimeMillis();
@@ -202,6 +202,14 @@ public final class MinecraftTextInputKeyboardTrigger {
         if (CallbackBridge.isGrabbing()) {
             clearPendingKeybindCapture();
             return false;
+        }
+
+        // A Rust engine reports its Key Binds capture itself (Horizon: once a frame), so no click
+        // probe is needed: the button pressed while a bind waits sends the key it stands for in
+        // gameplay. Without this the probe below never confirmed anything (it asks an OpenJDK VM
+        // those engines don't have), so the bind got A's click or B's Escape.
+        if (CallbackBridge.hasHostInputSink()) {
+            return CallbackBridge.isMinecraftKeybindCaptureActiveNative();
         }
 
         // A menu button must not block Android input while HotSpot checks Minecraft.
@@ -324,7 +332,7 @@ public final class MinecraftTextInputKeyboardTrigger {
         source.postDelayed(() -> {
             if (!source.isShown()) return;
             if (CallbackBridge.isGrabbing()) return;
-            if (TouchKeyboardHelper.isKeyboardShowing()) return;
+            if (TouchKeyboardHelper.isKeyboardReallyShowing()) return;
             if (!isMinecraftTextInputFocused()) return;
             TouchKeyboardHelper.showMenuTextKeyboard(source);
         }, delayMs);
@@ -389,13 +397,6 @@ public final class MinecraftTextInputKeyboardTrigger {
                 || simple.contains("controlsoptions")
                 || simple.equals("class_6599")
                 || simple.equals("class_458");
-    }
-
-    private static boolean isActiveKeybindSelection(@Nullable Object value) {
-        if (value == null) return false;
-        if (value instanceof Number) return ((Number) value).intValue() >= 0;
-        if (value instanceof Boolean) return (Boolean) value;
-        return true;
     }
 
     private static boolean looksLikeChatScreen(@Nullable Object screen) {

@@ -19,7 +19,6 @@ import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
-import android.graphics.drawable.ColorDrawable;
 import android.os.Build;
 import android.text.InputType;
 import android.view.Gravity;
@@ -60,7 +59,6 @@ import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import ca.dnamobile.droidbridgelauncher.ui.LauncherDialogStyle;
 

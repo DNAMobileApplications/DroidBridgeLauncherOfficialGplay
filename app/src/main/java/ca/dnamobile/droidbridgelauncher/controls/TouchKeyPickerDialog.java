@@ -27,7 +27,6 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import java.util.List;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import ca.dnamobile.droidbridgelauncher.ui.LauncherDialogStyle;
 

@@ -51,6 +51,19 @@ public final class HorizonInput {
     }
 
     /**
+     * True while Options > Controls > Key Binds waits for a key. DroidBridge's controller mapper
+     * then sends a button's gameplay mapping (the key that button stands for), so the bind gets
+     * that key instead of the button's menu click or Escape. False for an engine built before this.
+     */
+    public static boolean isKeybindCaptureActive() {
+        try {
+            return nativeIsKeybindCaptureActive();
+        } catch (UnsatisfiedLinkError error) {
+            return false;
+        }
+    }
+
+    /**
      * DroidBridge's existing IME viewport controller reports how many physical Android pixels
      * the completed Horizon frame should be translated upward while the system keyboard is open.
      * This is presentation-only: Horizon keeps the same render size and Minecraft GUI scale.
@@ -204,6 +217,7 @@ public final class HorizonInput {
     private static native void nativeMouseButton(int glfwButton, boolean pressed);
     private static native void nativeScroll(float x, float y);
     private static native boolean nativeIsGrabbed();
+    private static native boolean nativeIsKeybindCaptureActive();
     private static native void nativeSetMenuMouseCapture(boolean enabled, float x, float y);
     private static native long nativeMenuCursor();
     private static native void nativeSetMouseScale(float scale);

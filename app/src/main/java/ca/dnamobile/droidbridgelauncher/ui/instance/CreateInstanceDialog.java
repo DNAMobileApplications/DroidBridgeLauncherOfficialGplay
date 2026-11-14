@@ -41,7 +41,6 @@ import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.chip.Chip;
 import com.google.android.material.chip.ChipGroup;
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 
 import ca.dnamobile.droidbridgelauncher.ui.LauncherDialogStyle;
 import com.google.android.material.textfield.MaterialAutoCompleteTextView;

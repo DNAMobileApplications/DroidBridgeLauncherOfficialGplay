@@ -2426,17 +2426,6 @@ public final class ModpackInstallManager {
                 + actualSha1);
     }
 
-    private static void verifyHashesIfPresent(@NonNull File file, @Nullable JSONObject hashes) throws Exception {
-        if (hashes == null) return;
-        String expectedSha1 = hashes.optString("sha1", "").trim();
-        if (!isBlank(expectedSha1)) {
-            String actual = hashFile(file, "SHA-1");
-            if (!expectedSha1.equalsIgnoreCase(actual)) {
-                throw new IOException("SHA-1 mismatch for " + file.getName());
-            }
-        }
-    }
-
     private static boolean isTrustedModrinthDownloadHash(
             @NonNull String downloadUrl,
             @NonNull String actualSha1

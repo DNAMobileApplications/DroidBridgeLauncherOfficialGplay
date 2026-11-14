@@ -209,14 +209,6 @@ public final class AndroidModpackCrashMitigation {
         }
     }
 
-    private static void appendBlankLogLine() {
-        try {
-            Logger.appendToLog("");
-        } catch (Throwable ignored) {
-            Logging.i(TAG, "");
-        }
-    }
-
     @NonNull
     private static String stripTrailingLineBreaks(@NonNull String message) {
         int end = message.length();

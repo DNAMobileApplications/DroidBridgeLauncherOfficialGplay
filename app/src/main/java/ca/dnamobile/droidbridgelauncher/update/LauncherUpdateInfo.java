@@ -13,6 +13,9 @@
 package ca.dnamobile.droidbridgelauncher.update;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+
+import com.google.android.play.core.appupdate.AppUpdateInfo;
 
 /**
  * Immutable result from the Google Play update checker.
@@ -25,6 +28,12 @@ public final class LauncherUpdateInfo {
     public final String playStoreUrl;
     public final boolean updateAvailable;
     public final boolean verifiedByPlayCore;
+    /**
+     * The Play Store's own answer when it reported the update, to run Google Play's update
+     * screen with ({@link LauncherUpdateChecker#startPlayUpdate}); null otherwise.
+     */
+    @Nullable
+    public final AppUpdateInfo playUpdateInfo;
 
     public LauncherUpdateInfo(
             @NonNull String latestVersionName,
@@ -33,11 +42,23 @@ public final class LauncherUpdateInfo {
             boolean updateAvailable,
             boolean verifiedByPlayCore
     ) {
+        this(latestVersionName, latestVersionCode, playStoreUrl, updateAvailable, verifiedByPlayCore, null);
+    }
+
+    public LauncherUpdateInfo(
+            @NonNull String latestVersionName,
+            long latestVersionCode,
+            @NonNull String playStoreUrl,
+            boolean updateAvailable,
+            boolean verifiedByPlayCore,
+            @Nullable AppUpdateInfo playUpdateInfo
+    ) {
         this.latestVersionName = latestVersionName.trim();
         this.latestVersionCode = latestVersionCode;
         this.playStoreUrl = playStoreUrl;
         this.updateAvailable = updateAvailable;
         this.verifiedByPlayCore = verifiedByPlayCore;
+        this.playUpdateInfo = playUpdateInfo;
     }
 
     @NonNull

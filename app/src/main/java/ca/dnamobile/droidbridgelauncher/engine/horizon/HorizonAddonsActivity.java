@@ -269,7 +269,8 @@ public final class HorizonAddonsActivity extends AppCompatActivity {
         setStatus("", false);
         switch (tab) {
             case MODS:
-                addAction("Import .hmod file", true, view -> pick(REQUEST_IMPORT_MOD));
+                addAction(HorizonJavaMods.enabled() ? "Import mod (.hmod or .jar)" : "Import .hmod file",
+                        true, view -> pick(REQUEST_IMPORT_MOD));
                 addAction("Browse the mod catalog", false, view -> showTab(Tab.CATALOG));
                 loadMods();
                 break;
@@ -710,6 +711,10 @@ public final class HorizonAddonsActivity extends AppCompatActivity {
     private void importMod(@NonNull Uri uri) {
         String name = HorizonAddons.displayName(this, uri, "mod.hmod");
         String lower = name.toLowerCase(Locale.ROOT);
+        if (lower.endsWith(".jar") && HorizonJavaMods.enabled()) {
+            importJavaMod(uri, name);
+            return;
+        }
         if (lower.endsWith(".jar")) {
             showMessage("Java mods don't run in the Rust engine", name + " is a Fabric, NeoForge or Forge mod. Its "
                     + "code is written for Minecraft's Java classes, which the Rust engine doesn't have, so it "
@@ -804,6 +809,275 @@ public final class HorizonAddonsActivity extends AppCompatActivity {
                 main.post(() -> showMessage("Not imported", String.valueOf(error.getMessage())));
             }
         });
+    }
+
+    // --- Java mod import (off in Google Play release builds: HorizonJavaMods.enabled) -----------
+
+    /**
+     * A Fabric, Forge or NeoForge jar picked for this Horizon instance: DroidBridge's own version
+     * of it when this build has one, else its content carried over, else why it can't run here.
+     */
+    private void importJavaMod(@NonNull Uri uri, @NonNull String name) {
+        if (busy) return;
+        busy = true;
+        setStatus("Reading " + name + "...", true);
+        worker.execute(() -> {
+            File jar = null;
+            try {
+                File dir = new File(getCacheDir(), "java-mod-import");
+                jar = HorizonAddons.stage(this, uri, dir, HorizonJavaMods.MAX_JAR_BYTES);
+                HorizonJavaMods.JarFacts facts = HorizonJavaMods.read(this, jar);
+                HorizonJavaMods.Equivalent equivalent = HorizonJavaMods.equivalentFor(this, facts.id);
+                HorizonAddons.log("Horizon add-ons: Java mod " + facts.id + " " + facts.version
+                        + " (content " + facts.content + ", classes " + facts.code + ")"
+                        + (equivalent == null ? "" : ", DroidBridge has " + equivalent.name));
+                File ready = jar;
+                jar = null;
+                main.post(() -> {
+                    busy = false;
+                    setStatus("", false);
+                    offerJavaMod(ready, facts, equivalent);
+                });
+            } catch (IOException | RuntimeException error) {
+                if (jar != null) {
+                    //noinspection ResultOfMethodCallIgnored
+                    jar.delete();
+                }
+                String message = error.getMessage();
+                main.post(() -> {
+                    busy = false;
+                    setStatus("", false);
+                    showMessage("Couldn't read " + name,
+                            message == null ? error.getClass().getSimpleName() : message);
+                });
+            }
+        });
+    }
+
+    private void offerJavaMod(
+            @NonNull File jar,
+            @NonNull HorizonJavaMods.JarFacts facts,
+            @Nullable HorizonJavaMods.Equivalent equivalent
+    ) {
+        String title = facts.title();
+        if (equivalent != null) {
+            String needs = facts.depends.isEmpty() ? "" : "\n\nOn the Java engine it also needs "
+                    + TextUtils.join(", ", facts.depends) + "; DroidBridge's version needs nothing else.";
+            AlertDialog dialog = LauncherDialogStyle.builder(this)
+                    .setTitle("Use DroidBridge's " + equivalent.name + "?")
+                    .setMessage(title + " is a Java mod, so its code can't run in the Rust engine. "
+                            + "DroidBridge has its own mod that does the same job:\n\n"
+                            + equivalent.name + (equivalent.summary.isEmpty() ? "" : ": " + equivalent.summary)
+                            + needs + "\n\nIt is DroidBridge's own code, made for the Rust engine: nothing of "
+                            + facts.name + " is copied.")
+                    .setPositiveButton("Install", (d, which) -> {
+                        worker.execute(jar::delete);
+                        installEquivalent(equivalent);
+                    })
+                    .setNegativeButton(android.R.string.cancel, (d, which) -> worker.execute(jar::delete))
+                    .setCancelable(false)
+                    .create();
+            showDialog(dialog);
+            return;
+        }
+        if (facts.content > 0) {
+            String licence = facts.license.trim().isEmpty() ? "not stated" : facts.license.trim();
+            String code = facts.code > 0 ? " Anything its code does (machines, new behaviour, special items) "
+                    + "won't work, and some blocks may act like the vanilla block they copy." : "";
+            AlertDialog dialog = LauncherDialogStyle.builder(this)
+                    .setTitle("Convert " + facts.name + "'s content?")
+                    .setMessage(title + " is a Java mod. The Rust engine can't run its code, but its blocks, "
+                            + "items, recipes, textures and world generation can be carried over as a content mod."
+                            + code + "\n\nLicence: " + licence + ". The converted copy is for you to play with: "
+                            + "don't share it unless its licence allows.")
+                    .setPositiveButton("Convert", (d, which) -> carryJavaMod(jar, facts))
+                    .setNegativeButton(android.R.string.cancel, (d, which) -> worker.execute(jar::delete))
+                    .setCancelable(false)
+                    .create();
+            showDialog(dialog);
+            return;
+        }
+        worker.execute(jar::delete);
+        showMessage(title + " can't run in the Rust engine", title + " is all code (" + facts.code
+                + " class files) written for Minecraft's Java classes, which the Rust engine doesn't have, and "
+                + "it has no blocks, items or recipes to carry over. Play this instance with the Java engine to "
+                + "use it, or look for a Rust-engine version in the Mod catalog tab.");
+    }
+
+    /** The installed mod with this id, other than {@code except}; worker thread. */
+    @Nullable
+    private HorizonAddons.Item installedMod(@NonNull String id, @NonNull File except) {
+        for (HorizonAddons.Item item : inspectAll(HorizonAddons.listMods(gameDir))) {
+            if (id.equals(item.id) || item.file.getAbsoluteFile().equals(except.getAbsoluteFile())) {
+                return item;
+            }
+        }
+        return null;
+    }
+
+    /** Installs DroidBridge's bundled version of a Java mod (it replaces an older copy). */
+    private void installEquivalent(@NonNull HorizonJavaMods.Equivalent equivalent) {
+        if (busy) return;
+        busy = true;
+        setStatus("Installing " + equivalent.name + "...", true);
+        worker.execute(() -> {
+            File staged = null;
+            try {
+                File folder = HorizonAddons.folder(gameDir, HorizonAddons.Kind.MOD);
+                staged = HorizonJavaMods.stageEquivalent(this, equivalent, folder);
+                JSONObject facts = HorizonAddons.inspectWithEngine(this, HorizonAddons.Kind.MOD, staged);
+                int needs = facts.optInt("apiLevel", 0);
+                int has = HorizonJavaMods.engineModApiLevel(this);
+                if (needs > has) {
+                    throw new IOException(equivalent.name + " needs a newer Rust engine (mod API level " + needs
+                            + "; this one has " + has + "). Rebuild the engine with build-horizon.bat, then "
+                            + "DroidBridge.");
+                }
+                String id = facts.optString("id", "");
+                if (id.isEmpty()) throw new IOException("Its manifest has no id.");
+                HorizonAddons.Item incoming = new HorizonAddons.Item(HorizonAddons.Kind.MOD,
+                        new File(folder, id + ".hmod"));
+                HorizonAddons.applyFacts(incoming, facts);
+                HorizonAddons.Item replaced = installedMod(id, incoming.file);
+                File ready = staged;
+                staged = null;
+                main.post(() -> {
+                    busy = false;
+                    setStatus("", false);
+                    commitImport(ready, incoming, true, replaced);
+                });
+            } catch (IOException | RuntimeException error) {
+                if (staged != null) {
+                    //noinspection ResultOfMethodCallIgnored
+                    staged.delete();
+                }
+                String message = error.getMessage();
+                main.post(() -> {
+                    busy = false;
+                    setStatus("", false);
+                    showMessage("Not installed", message == null ? error.getClass().getSimpleName() : message);
+                });
+            }
+        });
+    }
+
+    /** Carries a jar's assets and data over into a content mod folder in this instance. */
+    private void carryJavaMod(@NonNull File jar, @NonNull HorizonJavaMods.JarFacts facts) {
+        if (busy) {
+            worker.execute(jar::delete);
+            return;
+        }
+        busy = true;
+        setStatus("Converting " + facts.name + "...", true);
+        worker.execute(() -> {
+            File work = null;
+            try {
+                File folder = HorizonAddons.folder(gameDir, HorizonAddons.Kind.MOD);
+                if (!folder.isDirectory() && !folder.mkdirs()) throw new IOException("Could not create " + folder);
+                // Inside the mods folder, so the finished folder moves into place with a rename.
+                work = new File(folder, ".carry-" + System.nanoTime() + ".partial");
+                if (!work.mkdirs()) throw new IOException("Could not create " + work);
+                JSONObject result = HorizonJavaMods.carry(this, jar, work);
+                File carried = new File(work, "carry");
+                if (!new File(carried, HorizonAddons.MOD_MANIFEST).isFile()) {
+                    throw new IOException("Nothing could be carried over.");
+                }
+                JSONObject facts2 = HorizonAddons.inspectWithEngine(this, HorizonAddons.Kind.MOD, carried);
+                String id = facts2.optString("id", result.optString("id", ""));
+                if (id.isEmpty()) throw new IOException("The converted mod has no id.");
+                HorizonAddons.Item incoming = new HorizonAddons.Item(HorizonAddons.Kind.MOD, new File(folder, id));
+                HorizonAddons.applyFacts(incoming, facts2);
+                HorizonAddons.Item replaced = installedMod(id, incoming.file);
+                String summary = carrySummary(result.optJSONObject("report"));
+                HorizonAddons.log("Horizon add-ons: converted " + facts.id + " for " + instanceName + ": " + summary);
+                File holder = work;
+                work = null;
+                main.post(() -> {
+                    busy = false;
+                    setStatus("", false);
+                    if (replaced == null && !incoming.file.exists()) {
+                        commitCarried(carried, holder, incoming, null, summary);
+                        return;
+                    }
+                    AlertDialog dialog = LauncherDialogStyle.builder(this)
+                            .setTitle("Replace " + (replaced != null ? replaced.title() : incoming.file.getName()) + "?")
+                            .setMessage("This instance already has the mod " + id + ". The engine loads a mod once, "
+                                    + "so the new conversion replaces it.")
+                            .setPositiveButton("Replace", (d, which) ->
+                                    commitCarried(carried, holder, incoming, replaced, summary))
+                            .setNegativeButton(android.R.string.cancel, (d, which) ->
+                                    worker.execute(() -> HorizonAddons.deleteRecursively(holder)))
+                            .setCancelable(false)
+                            .create();
+                    showDialog(dialog);
+                });
+            } catch (IOException | RuntimeException error) {
+                if (work != null) HorizonAddons.deleteRecursively(work);
+                String message = error.getMessage();
+                main.post(() -> {
+                    busy = false;
+                    setStatus("", false);
+                    showMessage("Not converted", facts.title() + " was not converted: "
+                            + (message == null ? error.getClass().getSimpleName() : message));
+                });
+            } finally {
+                //noinspection ResultOfMethodCallIgnored
+                jar.delete();
+            }
+        });
+    }
+
+    private void commitCarried(
+            @NonNull File carried,
+            @NonNull File holder,
+            @NonNull HorizonAddons.Item incoming,
+            @Nullable HorizonAddons.Item replaced,
+            @NonNull String summary
+    ) {
+        worker.execute(() -> {
+            try {
+                if (replaced != null && !replaced.file.getAbsoluteFile().equals(incoming.file.getAbsoluteFile())) {
+                    HorizonAddons.deleteRecursively(replaced.file);
+                }
+                HorizonAddons.commit(carried, incoming.file, true);
+                HorizonAddons.log("Horizon add-ons: installed converted " + incoming.file.getName()
+                        + " for " + instanceName);
+                main.post(() -> {
+                    String id = incoming.id;
+                    AlertDialog dialog = LauncherDialogStyle.builder(this)
+                            .setTitle("Converted " + incoming.title())
+                            .setMessage(summary + "\n\nNew mods start off.")
+                            .setPositiveButton(id == null ? "OK" : "Turn on", (d, which) -> {
+                                if (id != null) saveSwitch(id, true, false, list);
+                                refreshTab();
+                            })
+                            .setNegativeButton(id == null ? null : "Leave off", (d, which) -> refreshTab())
+                            .create();
+                    showDialog(dialog);
+                });
+            } catch (IOException error) {
+                main.post(() -> showMessage("Not installed", String.valueOf(error.getMessage())));
+            } finally {
+                HorizonAddons.deleteRecursively(holder);
+            }
+        });
+    }
+
+    /** "Carried over 120 files: 14 blocks, 22 items, 6 worldgen files." from the engine's report. */
+    @NonNull
+    private static String carrySummary(@Nullable JSONObject report) {
+        if (report == null) return "Its content was carried over.";
+        int blocks = report.optJSONObject("blocks") == null ? 0 : report.optJSONObject("blocks").length();
+        int left = report.optJSONObject("blocks_unknown") == null ? 0 : report.optJSONObject("blocks_unknown").length();
+        int items = report.optInt("items", 0);
+        int worldgen = report.optInt("worldgen", 0);
+        int copied = report.optInt("copied", 0);
+        int outside = report.optJSONArray("outside") == null ? 0 : report.optJSONArray("outside").length();
+        StringBuilder text = new StringBuilder("Carried over " + copied + " files: " + blocks + " blocks, "
+                + items + " items, " + worldgen + " worldgen files.");
+        if (left > 0) text.append(" ").append(left).append(" blocks were left out (no vanilla block like them).");
+        if (outside > 0) text.append(" ").append(outside).append(" files belong to other mods and were left out.");
+        return text.toString();
     }
 
     private void importShader(@NonNull Uri uri) {

@@ -22,7 +22,6 @@ import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.graphics.Rect;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -65,7 +64,6 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.appcompat.app.AppCompatActivity;
 
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
@@ -138,8 +136,6 @@ import ca.dnamobile.droidbridgelauncher.webdisplays.WebDisplaysAndroidWebViewBri
 import ca.dnamobile.droidbridgelauncher.skin.CustomSkinStore;
 import ca.dnamobile.droidbridgelauncher.skin.MicrosoftCapeService;
 import ca.dnamobile.droidbridgelauncher.skin.MicrosoftSkinUploader;
-import ca.dnamobile.droidbridgelauncher.skin.PlayerHeadLoader;
-import ca.dnamobile.droidbridgelauncher.skin.PlayerModelPreviewView;
 import ca.dnamobile.droidbridgelauncher.skin.SkinModelType;
 import ca.dnamobile.droidbridgelauncher.update.LauncherUpdateDialogs;
 import ca.dnamobile.droidbridgelauncher.update.LauncherUpdatePreferences;
@@ -1340,6 +1336,7 @@ public final class LauncherSettingsActivity extends ControllerNavigationActivity
         });
 
         installVulkanVsyncToggle();
+        installFreedrenoCompatToggles();
 
         Renderers.reload(this);
         refreshRendererList();
@@ -2403,30 +2400,6 @@ public final class LauncherSettingsActivity extends ControllerNavigationActivity
             // Rounded-corner padding and notch avoidance can coexist. The final safe
             // inset is the larger of the physical cutout inset and this small margin.
         });
-    }
-
-    private void setForceFullscreenQuietly(boolean enabled) {
-        LauncherPreferences.setForceFullscreenMode(this, enabled);
-        binding.switchForceFullscreenMode.setOnCheckedChangeListener(null);
-        binding.switchForceFullscreenMode.setChecked(enabled);
-        updateForceFullscreenSwitchText(enabled);
-        bindForceFullscreenSwitch();
-    }
-
-    private void setIgnoreDisplayCutoutQuietly(boolean enabled) {
-        LauncherPreferences.setIgnoreDisplayCutout(this, enabled);
-        binding.switchIgnoreDisplayCutout.setOnCheckedChangeListener(null);
-        binding.switchIgnoreDisplayCutout.setChecked(enabled);
-        updateIgnoreDisplayCutoutSwitchText(enabled);
-        bindIgnoreDisplayCutoutSwitch();
-    }
-
-    private void setAvoidRoundedCornersQuietly(boolean enabled) {
-        LauncherPreferences.setAvoidRoundedDisplayCorners(this, enabled);
-        binding.switchAvoidRoundedCorners.setOnCheckedChangeListener(null);
-        binding.switchAvoidRoundedCorners.setChecked(enabled);
-        updateAvoidRoundedCornersSwitchText(enabled);
-        bindAvoidRoundedCornersSwitch();
     }
 
     private void openResolutionScaleInputDialog() {
@@ -6940,76 +6913,6 @@ public final class LauncherSettingsActivity extends ControllerNavigationActivity
         return new InstalledLoaderInstance(instance.getName(), profileName, inherited.isEmpty() ? profileName : inherited);
     }
 
-    private void openJavaGuiLauncherActivityForOptiFine(
-            @NonNull File copiedJar,
-            @NonNull String displayName,
-            @NonNull String profileName
-    ) {
-        String[] candidateClassNames = new String[]{
-                "ca.dnamobile.droidbridgelauncher.DroidBridgeStandaloneJarActivity",
-        };
-
-        for (String className : candidateClassNames) {
-            try {
-                Class<?> activityClass = Class.forName(className);
-                Intent intent = new Intent(this, activityClass);
-                intent.putExtra("jre_name", "Internal-8");
-                intent.putExtra("forceShowLog", true);
-                intent.putExtra("openLogOutput", true);
-                intent.putExtra("subscribe_jvm_exit_event", true);
-                intent.putExtra("javaArgs", buildOptiFineJavaGuiArgs(copiedJar, displayName, true));
-                updateJarExecutionSummary("Opening OptiFine installer using " + className + "...");
-                startActivity(intent);
-                return;
-            } catch (ClassNotFoundException ignored) {
-            } catch (Throwable throwable) {
-                Logging.e("LauncherSettings", "Unable to open OptiFine Java GUI launcher Activity", throwable);
-                String message = throwable.getMessage() != null ? throwable.getMessage() : throwable.toString();
-                updateJarExecutionSummary("Unable to open OptiFine installer Activity: " + message);
-                finishJarExecutionProgressDialog("Unable to open OptiFine installer Activity: " + message, false);
-                return;
-            }
-        }
-
-        String message = "DroidBridgeStandaloneJarActivity was not found. OptiFine standalone installer cannot open.";
-        updateJarExecutionSummary(message);
-        finishJarExecutionProgressDialog(message, false);
-    }
-
-    private void installOptiFineJarIntoInstanceMods(
-            @NonNull Uri jarUri,
-            @NonNull String displayName,
-            @NonNull LauncherInstance instance
-    ) {
-        Thread thread = new Thread(() -> {
-            try {
-                File modsDir = new File(instance.getGameDirectory(), "mods");
-                if (!modsDir.exists() && !modsDir.mkdirs()) {
-                    throw new IOException("Unable to create mods folder: " + modsDir.getAbsolutePath());
-                }
-                File target = uniqueFileInDirectory(modsDir, sanitizeJarFileName(displayName));
-                copyUriToFile(jarUri, target);
-
-                String message = "Installed OptiFine into: " + instance.getName()
-                        + "\n\nFile copied to:\n" + target.getAbsolutePath()
-                        + "\n\nLaunch that Forge instance to use OptiFine. Standalone OptiFine profile creation still needs a native extractor.";
-                Logging.i("LauncherSettings", message);
-                runOnUiThread(() -> {
-                    updateJarExecutionSummary(message);
-                    Toast.makeText(this, getString(R.string.optifine_added, instance.getName()), Toast.LENGTH_LONG).show();
-                });
-            } catch (Throwable throwable) {
-                Logging.e("LauncherSettings", "OptiFine native mod install failed", throwable);
-                String message = throwable.getMessage() != null ? throwable.getMessage() : throwable.toString();
-                runOnUiThread(() -> {
-                    updateJarExecutionSummary("OptiFine install failed: " + message);
-                    Toast.makeText(this, getString(R.string.optifine_install_failed, message), Toast.LENGTH_LONG).show();
-                });
-            }
-        }, "DroidBridgeOptiFineModInstall");
-        thread.start();
-    }
-
     @NonNull
     private File uniqueFileInDirectory(@NonNull File directory, @NonNull String requestedName) {
         File first = new File(directory, requestedName);
@@ -7028,12 +6931,6 @@ public final class LauncherSettingsActivity extends ControllerNavigationActivity
             if (!candidate.exists()) return candidate;
         }
         return new File(directory, name + "-" + System.currentTimeMillis() + extension);
-    }
-
-    private boolean isForgeLikeInstance(@NonNull LauncherInstance instance) {
-        String loader = instance.getLoader().toLowerCase(Locale.US);
-        String baseVersion = instance.getBaseVersionId().toLowerCase(Locale.US);
-        return loader.contains("forge") || baseVersion.contains("forge") || baseVersion.contains("neoforge");
     }
 
     @NonNull
@@ -8408,22 +8305,6 @@ public final class LauncherSettingsActivity extends ControllerNavigationActivity
         File copiedJar = new File(jarDir, sanitizeJarFileName(displayName));
         copyUriToFile(jarUri, copiedJar);
         return copiedJar;
-    }
-
-    private boolean shouldAttemptGuiJarCompatibility(@NonNull String displayName) {
-        /*
-         * Do not enable the old direct ProcessBuilder + Cacio compatibility path
-         * for OptiFine anymore. Logcat showed it still starts with:
-         *   -Djava.awt.headless=false
-         *   -Dawt.toolkit=net.java.openjdk.cacio.ctc.CTCToolkit
-         *   -Xbootclasspath/p:<cacio jars>
-         * and then Internal-8 aborts in HotSpot AArch64 before the installer runs.
-         *
-         * OptiFine is handled above before generic jar execution. It follows
-         * the prior implementation's standalone profile flow instead of being copied into a Forge
-         * mods folder.
-         */
-        return false;
     }
 
     @Nullable
@@ -10250,11 +10131,6 @@ public final class LauncherSettingsActivity extends ControllerNavigationActivity
         return R.string.grid_play_icon_mode_saved_regular;
     }
 
-    private void updateQuickPlayLastWorldGridSwitchText(boolean quickPlayLastWorld) {
-        // Kept for any older source branches that still call the former toggle helper.
-        updateGridPlayIconModeButtonText();
-    }
-
     private void updateRenderSurfaceSwitchText(boolean useNativeSurfaceView) {
         binding.switchUseNativeSurface.setText(
                 useNativeSurfaceView
@@ -10345,6 +10221,69 @@ public final class LauncherSettingsActivity extends ControllerNavigationActivity
         params.topMargin = dp(8);
         int index = parent.indexOfChild(binding.switchUseOpenGlFor26Plus) + 1;
         parent.addView(toggle, Math.min(Math.max(index, 0), parent.getChildCount()), params);
+    }
+
+    /**
+     * Freedreno/Turnip fixes for Adreno rendering glitches (FreedrenoCompatOptions). Both are
+     * off by default and apply on the next launch, only to DroidBridge's own Mesa drivers.
+     */
+    private void installFreedrenoCompatToggles() {
+        if (binding == null || binding.switchUseOpenGlFor26Plus == null) return;
+        android.view.ViewParent rawParent = binding.switchUseOpenGlFor26Plus.getParent();
+        if (!(rawParent instanceof ViewGroup)) return;
+        ViewGroup parent = (ViewGroup) rawParent;
+
+        View anchor = parent.findViewWithTag("enable_vulkan_vsync_toggle");
+        if (anchor == null) anchor = binding.switchUseOpenGlFor26Plus;
+
+        CheckBox ubwc = addFreedrenoCompatToggle(parent, anchor, "freedreno_ubwc_flag_hint_toggle",
+                LauncherPreferences.isFreedrenoUbwcFlagHintEnabled(this),
+                "Adreno: UBWC texture fix (Freedreno/Turnip)",
+                "Fixes rainbow or blocky textures, flickering chunks and corrupted water/sky on some Adreno 7xx GPUs.",
+                enabled -> LauncherPreferences.setFreedrenoUbwcFlagHintEnabled(this, enabled));
+        if (ubwc == null) return;
+        addFreedrenoCompatToggle(parent, ubwc, "freedreno_sysmem_rendering_toggle",
+                LauncherPreferences.isFreedrenoSysmemRenderingEnabled(this),
+                "Adreno: Render without tiling (Freedreno/Turnip)",
+                "Slower. Try it if parts of the world or UI are missing, half-drawn or show seams.",
+                enabled -> LauncherPreferences.setFreedrenoSysmemRenderingEnabled(this, enabled));
+    }
+
+    private interface FreedrenoToggleSaver {
+        void save(boolean enabled);
+    }
+
+    @Nullable
+    private CheckBox addFreedrenoCompatToggle(
+            @NonNull ViewGroup parent,
+            @NonNull View after,
+            @NonNull String tag,
+            boolean checked,
+            @NonNull String title,
+            @NonNull String summary,
+            @NonNull FreedrenoToggleSaver saver
+    ) {
+        View existing = parent.findViewWithTag(tag);
+        if (existing instanceof CheckBox) return (CheckBox) existing;
+
+        CheckBox toggle = new CheckBox(this);
+        toggle.setTag(tag);
+        toggle.setChecked(checked);
+        toggle.setText(title + ": " + (checked ? "On" : "Off") + "\n" + summary);
+        toggle.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            saver.save(isChecked);
+            toggle.setText(title + ": " + (isChecked ? "On" : "Off") + "\n" + summary);
+            Toast.makeText(this, "Applies on the next game launch.", Toast.LENGTH_SHORT).show();
+        });
+
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        params.topMargin = dp(8);
+        int index = parent.indexOfChild(after) + 1;
+        parent.addView(toggle, Math.min(Math.max(index, 0), parent.getChildCount()), params);
+        return toggle;
     }
 
     private void updateVulkanVsyncToggleText(@NonNull CheckBox toggle, boolean enabled) {
@@ -12599,17 +12538,6 @@ public final class LauncherSettingsActivity extends ControllerNavigationActivity
             Toast.makeText(this, R.string.microsoft_skin_refreshing, Toast.LENGTH_SHORT).show();
         }
         authManager.refreshMicrosoftAccount();
-    }
-
-    private static String sanitizeOfflineName(@Nullable String raw) {
-        if (raw == null) return "Player";
-        String cleaned = raw.trim().replaceAll("[^A-Za-z0-9_]", "");
-        if (cleaned.length() > 16) cleaned = cleaned.substring(0, 16);
-        return cleaned.length() == 0 ? "Player" : cleaned;
-    }
-
-    private static boolean isValidOfflineName(@Nullable String value) {
-        return value != null && value.matches("[A-Za-z0-9_]{3,16}");
     }
 
 

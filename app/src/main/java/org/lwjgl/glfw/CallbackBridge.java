@@ -13,8 +13,8 @@ import android.content.ClipData;
 import android.content.ClipDescription;
 import android.content.ClipboardManager;
 import android.content.Context;
-import android.content.Intent;
-import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import android.view.Choreographer;
 
@@ -25,7 +25,6 @@ import androidx.annotation.Nullable;
 import ca.dnamobile.droidbridgelauncher.runtime.DroidBridgeSDL3Bootstrap;
 import ca.dnamobile.droidbridgelauncher.runtime.GrabListener;
 import ca.dnamobile.droidbridgelauncher.runtime.LwjglGlfwKeycode;
-import ca.dnamobile.droidbridgelauncher.runtime.utils.JREUtils;
 import ca.dnamobile.droidbridgelauncher.storage.AndroidGameFolderOpener;
 
 import java.lang.ref.WeakReference;
@@ -34,7 +33,39 @@ import java.util.ArrayList;
 import dalvik.annotation.optimization.CriticalNative;
 
 public class CallbackBridge {
-    public static final Choreographer sChoreographer = Choreographer.getInstance();
+    /*
+     * The main thread's Choreographer, taken on first use rather than when this class
+     * loads. Choreographer.getInstance() throws on a thread without a Looper, and this
+     * class can be loaded from any thread (libdroidbridge_runtime's JNI_OnLoad touches
+     * it when Logger first loads that library, e.g. from an import worker): a throw here
+     * left an ExceptionInInitializerError pending in JNI_OnLoad, and ART aborted the
+     * whole launcher, which then came back on its home screen.
+     */
+    private static volatile Choreographer sChoreographer;
+    private static final Handler sMainHandler = new Handler(Looper.getMainLooper());
+
+    static {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            sChoreographer = Choreographer.getInstance();
+        }
+    }
+
+    /** Runs {@code callback} on the main thread's next frame after {@code delayMillis}, from any thread. */
+    private static void postFrameCallbackDelayed(@NonNull Choreographer.FrameCallback callback, long delayMillis) {
+        Choreographer choreographer = sChoreographer;
+        if (choreographer == null && Looper.myLooper() == Looper.getMainLooper()) {
+            choreographer = sChoreographer = Choreographer.getInstance();
+        }
+        if (choreographer != null) {
+            choreographer.postFrameCallbackDelayed(callback, delayMillis);
+            return;
+        }
+        sMainHandler.post(() -> {
+            Choreographer main = sChoreographer;
+            if (main == null) main = sChoreographer = Choreographer.getInstance();
+            main.postFrameCallbackDelayed(callback, delayMillis);
+        });
+    }
     private static boolean isGrabbing = false;
 
     // Captured synchronously on the game/render thread whenever GLFW/SDL changes
@@ -97,6 +128,14 @@ public class CallbackBridge {
         void key(int glfwKey, boolean down, int mods);
 
         void character(char codepoint);
+
+        /**
+         * True while the engine's Key Binds screen waits for a key (a Rust engine answers this
+         * itself; there is no embedded JVM to ask). False: the engine can't tell.
+         */
+        default boolean isKeybindCaptureActive() {
+            return false;
+        }
     }
 
     private static volatile @Nullable HostInputSink sHostInputSink;
@@ -146,6 +185,15 @@ public class CallbackBridge {
      * so launcher-side reflection can never reliably detect key-binding capture.
      */
     public static boolean isMinecraftKeybindCaptureActiveNative() {
+        HostInputSink sink = sHostInputSink;
+        if (sink != null) {
+            // A Rust engine process: no OpenJDK VM to query, the engine reports it itself.
+            try {
+                return sink.isKeybindCaptureActive();
+            } catch (Throwable ignored) {
+                return false;
+            }
+        }
         try {
             return nativeIsMinecraftKeybindCaptureActive();
         } catch (Throwable throwable) {
@@ -156,6 +204,11 @@ public class CallbackBridge {
 
     /** Returns whether the embedded Minecraft JVM currently shows a Controls screen. */
     public static boolean isMinecraftControlsScreenOpenNative() {
+        if (sHostInputSink != null) {
+            // A Rust engine process has no OpenJDK VM: the native query would only fail (and
+            // log a stack trace on every controller press). Key binds use the engine's own answer.
+            return false;
+        }
         try {
             return nativeIsMinecraftControlsScreenOpen();
         } catch (Throwable throwable) {
@@ -241,7 +294,7 @@ public class CallbackBridge {
 
     public static void putMouseEventWithCoords(int button, float x, float y) {
         putMouseEventWithCoords(button, true, x, y);
-        sChoreographer.postFrameCallbackDelayed(
+        postFrameCallbackDelayed(
                 ignored -> putMouseEventWithCoords(button, false, x, y),
                 33
         );
@@ -1100,7 +1153,7 @@ public class CallbackBridge {
             centerCursorSilentlyForGrab();
         }
 
-        sChoreographer.postFrameCallbackDelayed((time) -> {
+        postFrameCallbackDelayed((time) -> {
             if (isGrabbing != grabbing) return;
             synchronized (grabListeners) {
                 for (GrabListener g : grabListeners) g.onGrabState(grabbing);

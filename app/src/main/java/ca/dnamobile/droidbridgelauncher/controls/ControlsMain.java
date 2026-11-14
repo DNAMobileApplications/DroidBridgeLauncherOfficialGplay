@@ -21,8 +21,6 @@ import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 
-import com.google.android.material.dialog.MaterialAlertDialogBuilder;
-
 import ca.dnamobile.droidbridgelauncher.ui.LauncherDialogStyle;
 
 import ca.dnamobile.droidbridgelauncher.security.AppSignatureVerifier;

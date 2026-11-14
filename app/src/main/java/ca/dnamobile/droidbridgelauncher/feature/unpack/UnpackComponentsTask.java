@@ -19,17 +19,29 @@ import androidx.annotation.NonNull;
 
 import ca.dnamobile.droidbridgelauncher.runtime.Tools;
 
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 import ca.dnamobile.droidbridgelauncher.feature.log.Logging;
 import ca.dnamobile.droidbridgelauncher.utils.path.PathManager;
 
 public class UnpackComponentsTask extends AbstractUnpackTask {
     private static final Object INSTALL_LOCK = new Object();
+    /**
+     * Optional list in a component's assets of files it shares byte-for-byte with another
+     * component, so the APK stores them once: one {@code path=assetPath} per line, for example
+     * {@code natives/arm64-v8a/libopenal.so=components/lwjgl3.3.3/natives/arm64-v8a/libopenal.so}.
+     * They are installed (and verified) exactly like the component's own files.
+     */
+    private static final String SHARED_FILES_LIST = "shared-files.txt";
 
     private final Context context;
     private final Components component;
@@ -138,10 +150,23 @@ public class UnpackComponentsTask extends AbstractUnpackTask {
                             "components/" + component.assetComponent,
                             stagingDir.getAbsolutePath()
                     );
+                    List<String[]> sharedFiles = readSharedFiles();
+                    for (String[] shared : sharedFiles) {
+                        File outFile = new File(stagingDir, shared[0]);
+                        File parent = outFile.getParentFile();
+                        if (parent == null || (!parent.isDirectory() && !parent.mkdirs())) {
+                            throw new IOException("Unable to create directory for shared file: " + outFile);
+                        }
+                        Tools.copyAssetFile(context, shared[1], parent.getAbsolutePath(), outFile.getName(), true);
+                    }
                     String failed = findFirstMismatchedAssetExact(
                             "components/" + component.assetComponent,
                             stagingDir
                     );
+                    for (int i = 0; failed == null && i < sharedFiles.size(); i++) {
+                        String[] shared = sharedFiles.get(i);
+                        failed = findFirstMismatchedAssetExact(shared[1], new File(stagingDir, shared[0]));
+                    }
                     if (failed != null) {
                         throw new IOException("Staged component verification failed: " + failed);
                     }
@@ -187,6 +212,37 @@ public class UnpackComponentsTask extends AbstractUnpackTask {
         } finally {
             if (listener != null) listener.onTaskEnd();
         }
+    }
+
+    /** The component's shared-files list (see SHARED_FILES_LIST); empty when it has none. */
+    @NonNull
+    private List<String[]> readSharedFiles() throws IOException {
+        List<String[]> out = new ArrayList<>();
+        String listPath = "components/" + component.assetComponent + "/" + SHARED_FILES_LIST;
+        InputStream input;
+        try {
+            input = assetManager.open(listPath);
+        } catch (IOException missing) {
+            return out;
+        }
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(input, StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                line = line.trim();
+                if (line.isEmpty() || line.startsWith("#")) continue;
+                int split = line.indexOf('=');
+                if (split <= 0 || split == line.length() - 1) {
+                    throw new IOException("Malformed line in " + listPath + ": " + line);
+                }
+                String relative = line.substring(0, split).trim();
+                String source = line.substring(split + 1).trim();
+                if (relative.startsWith("/") || relative.contains("..") || !source.startsWith("components/")) {
+                    throw new IOException("Unsafe entry in " + listPath + ": " + line);
+                }
+                out.add(new String[]{relative, source});
+            }
+        }
+        return out;
     }
 
     private static String resolveRootDir(@NonNull Components component) {

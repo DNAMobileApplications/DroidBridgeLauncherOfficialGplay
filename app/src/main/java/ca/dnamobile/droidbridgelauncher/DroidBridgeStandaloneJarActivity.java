@@ -42,7 +42,6 @@ import ca.dnamobile.droidbridgelauncher.runtime.multirt.MultiRTUtils;
 import ca.dnamobile.droidbridgelauncher.runtime.utils.JREUtils;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -50,8 +49,6 @@ import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.jar.Attributes;
 import java.util.jar.Manifest;
 import java.util.zip.ZipEntry;
@@ -139,44 +136,6 @@ public class DroidBridgeStandaloneJarActivity extends Activity {
         new Thread(this::runJarLaunchOnCurrentLooperThread, "JREMainThread").start();
     }
 
-    private void preloadNativeBridgeThenStartJar() {
-        try {
-            nativePreloadThread = new HandlerThread("DroidBridgeNativePreload");
-            nativePreloadThread.start();
-            nativePreloadHandler = new Handler(nativePreloadThread.getLooper());
-            nativePreloadHandler.post(() -> {
-                try {
-                    if (Looper.myLooper() == null) {
-                        throw new IllegalStateException("Native bridge preload thread has no Looper.");
-                    }
-
-                    /*
-                     * chdir() is harmless here and forces JREUtils.<clinit>() to run.
-                     * Do not call dlopen() with a fake path; just load the Java/native
-                     * bridge cleanly and let buildLaunchRequest() set the real working
-                     * directory and LD_LIBRARY_PATH immediately before JLI_Launch.
-                     */
-                    JREUtils.chdir(getFilesDir().getAbsolutePath());
-                    appendLog("Native bridge preloaded on dedicated looper thread");
-                } catch (Throwable throwable) {
-                    nativeBridgePreloadError = throwable;
-                    Logging.e(TAG, "Native bridge preload failed", throwable);
-                    appendLog("Native bridge preload failed: "
-                            + (throwable.getMessage() != null ? throwable.getMessage() : throwable.toString()));
-                } finally {
-                    runJarLaunchOnCurrentLooperThread();
-                }
-            });
-        } catch (Throwable throwable) {
-            nativeBridgePreloadError = throwable;
-            Logging.e(TAG, "Unable to start native bridge preload thread", throwable);
-            appendLog("Unable to start native bridge preload thread: "
-                    + (throwable.getMessage() != null ? throwable.getMessage() : throwable.toString()));
-            mainHandler.post(this::ensureUiCreated);
-            showToast("Unable to start Java GUI preload thread.");
-        }
-    }
-
     @Override
     protected void onDestroy() {
         if (awtCanvasView != null) awtCanvasView.stop();
@@ -194,32 +153,6 @@ public class DroidBridgeStandaloneJarActivity extends Activity {
         buildUi();
         flushPendingLogsToView();
         if (awtCanvasView != null) awtCanvasView.start();
-    }
-
-    private void scheduleUiAfterJliStart() {
-        mainHandler.postDelayed(this::ensureUiCreated, 1200L);
-    }
-
-    private void createUiBeforeJliLaunch() throws InterruptedException {
-        if (uiCreated) return;
-
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            ensureUiCreated();
-            return;
-        }
-
-        CountDownLatch latch = new CountDownLatch(1);
-        mainHandler.post(() -> {
-            try {
-                ensureUiCreated();
-            } finally {
-                latch.countDown();
-            }
-        });
-
-        if (!latch.await(UI_READY_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
-            appendLog("WARNING: Timed out waiting for Java GUI canvas before JLI_Launch");
-        }
     }
 
     private void buildUi() {

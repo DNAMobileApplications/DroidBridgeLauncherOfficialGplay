@@ -59,6 +59,7 @@ import android.widget.Toast;
 import java.io.FileNotFoundException;
 import java.util.ArrayList;
 import ca.dnamobile.droidbridgelauncher.runtime.DroidBridgeSDL3Bootstrap;
+import ca.dnamobile.droidbridgelauncher.storage.AndroidGameFolderOpener;
 import ca.dnamobile.droidbridgelauncher.settings.LauncherPreferences;
 import ca.dnamobile.droidbridgelauncher.utils.FullscreenUtils;
 import ca.dnamobile.droidbridgelauncher.runtime.DroidBridgeSDL3NativeWindowBridge;
@@ -2245,6 +2246,24 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
      */
     public static boolean openURL(String url)
     {
+        // Minecraft 26.3+ opens folders and files through SDL_OpenURL (Blaze3D.openUri /
+        // openPath), so Litematica's Open Directory, Open Pack Folder and the like arrive here as
+        // file:// URIs. Android refuses file:// in an ACTION_VIEW intent (FileUriExposedException
+        // since Android 7), so those clicks did nothing. Local targets go to DroidBridge's folder
+        // opener instead, the same one the xdg-open hook uses for older versions: it offers
+        // "Import files here" for a folder of the running game, or browses it.
+        if (isLocalTarget(url)) {
+            try {
+                Activity activity = getDroidBridgeActivity();
+                Context context = activity != null ? activity : SDL.getContext();
+                boolean opened = AndroidGameFolderOpener.openFromGame(context, url);
+                Log.i(TAG, "SDL_OpenURL local target handled=" + opened + " url=" + url);
+                return opened;
+            } catch (Throwable throwable) {
+                Log.w(TAG, "SDL_OpenURL local target failed: " + url, throwable);
+                return false;
+            }
+        }
         try {
             Intent i = new Intent(Intent.ACTION_VIEW);
             i.setData(Uri.parse(url));
@@ -2264,6 +2283,13 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
             return false;
         }
         return true;
+    }
+
+    /** A file:// URI or an absolute path: something on this device, not a web link. */
+    private static boolean isLocalTarget(String url) {
+        if (url == null) return false;
+        String text = url.trim();
+        return text.regionMatches(true, 0, "file:", 0, 5) || text.startsWith("/");
     }
 
     /**
