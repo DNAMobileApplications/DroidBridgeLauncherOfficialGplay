@@ -417,17 +417,15 @@ public final class TouchControlsOverlay extends FrameLayout implements TouchCont
 
     private static final class SwipeGestureState {
         /**
-         * The button where this finger started. Keep it held for the full gesture so
-         * modifiers such as Sneak/Shift can remain active while the finger slides onto
-         * W/A/S/D (and so movement buttons can naturally form diagonals).
+         * Buttons this finger pressed that stay held until it lifts: Repeat while held on a
+         * swipeable button (Sneak/Shift stays on while the finger slides onto W/A/S/D).
          */
-        @NonNull final TouchControlButtonView primaryControl;
-        /** Optional second swipeable button currently under the same finger. */
-        @Nullable TouchControlButtonView activeSecondaryControl;
-
-        SwipeGestureState(@NonNull TouchControlButtonView primaryControl) {
-            this.primaryControl = primaryControl;
-        }
+        @NonNull final java.util.ArrayList<TouchControlButtonView> heldControls = new java.util.ArrayList<>();
+        /**
+         * The button the press follows: the one under the finger now, let go as the finger
+         * slides onto another (W, then S: W is released and S pressed).
+         */
+        @Nullable TouchControlButtonView activeControl;
     }
 
 
@@ -4652,7 +4650,7 @@ public final class TouchControlsOverlay extends FrameLayout implements TouchCont
         layout.addView(swipeGesture);
 
         TextView swipeGestureHint = valueLabel(context,
-                "When enabled on a group of buttons, the button where the swipe starts stays held while sliding onto other swipeable buttons. This allows combinations such as Sneak + W or W + A without lifting your finger.");
+                "When enabled on a group of buttons, the press follows your finger: slide from W onto S and W lets go as S presses, without lifting your finger. Tick Repeat while held too on a button that should stay pressed while you slide onto others, such as Sneak + W/A/S/D.");
         layout.addView(swipeGestureHint);
 
         CheckBox virtualMouse = new CheckBox(context);
@@ -8916,7 +8914,23 @@ public final class TouchControlsOverlay extends FrameLayout implements TouchCont
     }
 
     private void startSwipeGesturePointer(int pointerId, @NonNull TouchControlButtonView primaryControl) {
-        swipeGesturePointers.put(pointerId, new SwipeGestureState(primaryControl));
+        SwipeGestureState state = new SwipeGestureState();
+        if (staysHeldWhileSwiping(primaryControl)) {
+            state.heldControls.add(primaryControl);
+        } else {
+            state.activeControl = primaryControl;
+        }
+        swipeGesturePointers.put(pointerId, state);
+    }
+
+    /**
+     * A swipeable button that keeps its press while the finger slides off it: Repeat while
+     * held is on (for a swipeable button it means "stay held", TouchControlButtonView doesn't
+     * repeat it), or it is a toggle (sliding off must not flip it a second time).
+     */
+    private static boolean staysHeldWhileSwiping(@NonNull TouchControlButtonView control) {
+        TouchControlData data = control.getData();
+        return data.repeatOnHold || data.toggle;
     }
 
     private void dispatchActiveSwipeGesturePointers(@NonNull MotionEvent event) {
@@ -8957,42 +8971,41 @@ public final class TouchControlsOverlay extends FrameLayout implements TouchCont
 
         float x = event.getX(pointerIndex);
         float y = event.getY(pointerIndex);
-        TouchControlButtonView target = findSwipeGestureTargetUnder(x, y, state.primaryControl);
+        TouchControlButtonView target = findSwipeGestureTargetUnder(x, y);
 
-        // The originating control stays down for the lifetime of this finger. Moving
-        // back over it only drops the temporary secondary control; it must never send
-        // an UP/DOWN pair to the primary or modifiers such as Shift would flicker off.
-        if (target == state.primaryControl) {
-            releaseSecondarySwipeGestureControl(event, pointerIndex, state);
-            dispatchSinglePointerToControl(event, pointerIndex, MotionEvent.ACTION_MOVE, state.primaryControl);
+        // Still on the button the press follows, or back on one that stays held (Sneak):
+        // no new press, only the movement (back on a held button lets go of the other).
+        if (target != null && target == state.activeControl) {
+            dispatchSinglePointerToControl(event, pointerIndex, MotionEvent.ACTION_MOVE, target);
+            return;
+        }
+        if (target != null && state.heldControls.contains(target)) {
+            releaseActiveSwipeGestureControl(event, pointerIndex, state);
+            dispatchSinglePointerToControl(event, pointerIndex, MotionEvent.ACTION_MOVE, target);
             return;
         }
 
-        if (target == state.activeSecondaryControl) {
-            if (target != null) {
-                dispatchSinglePointerToControl(event, pointerIndex, MotionEvent.ACTION_MOVE, target);
-            }
-            return;
-        }
-
-        // Only the secondary button transfers as the finger crosses other swipeable
-        // controls. The primary remains held, allowing Shift+W, W+A, and similar combos.
-        releaseSecondarySwipeGestureControl(event, pointerIndex, state);
-        if (target != null) {
-            state.activeSecondaryControl = target;
-            dispatchSinglePointerToControl(event, pointerIndex, MotionEvent.ACTION_DOWN, target);
+        // Onto another swipeable button (or off them all): the press moves with the finger.
+        // Buttons that stay held keep theirs until the finger lifts.
+        releaseActiveSwipeGestureControl(event, pointerIndex, state);
+        if (target == null) return;
+        dispatchSinglePointerToControl(event, pointerIndex, MotionEvent.ACTION_DOWN, target);
+        if (staysHeldWhileSwiping(target)) {
+            state.heldControls.add(target);
+        } else {
+            state.activeControl = target;
         }
     }
 
-    private void releaseSecondarySwipeGestureControl(
+    private void releaseActiveSwipeGestureControl(
             @NonNull MotionEvent event,
             int pointerIndex,
             @NonNull SwipeGestureState state
     ) {
-        TouchControlButtonView active = state.activeSecondaryControl;
+        TouchControlButtonView active = state.activeControl;
         if (active == null) return;
         dispatchSinglePointerToControl(event, pointerIndex, MotionEvent.ACTION_UP, active);
-        state.activeSecondaryControl = null;
+        state.activeControl = null;
     }
 
     private void releaseSwipeGestureControls(
@@ -9000,16 +9013,15 @@ public final class TouchControlsOverlay extends FrameLayout implements TouchCont
             int pointerIndex,
             @NonNull SwipeGestureState state
     ) {
-        releaseSecondarySwipeGestureControl(event, pointerIndex, state);
-        dispatchSinglePointerToControl(event, pointerIndex, MotionEvent.ACTION_UP, state.primaryControl);
+        releaseActiveSwipeGestureControl(event, pointerIndex, state);
+        for (int i = state.heldControls.size() - 1; i >= 0; i--) {
+            dispatchSinglePointerToControl(event, pointerIndex, MotionEvent.ACTION_UP, state.heldControls.get(i));
+        }
+        state.heldControls.clear();
     }
 
     @Nullable
-    private TouchControlButtonView findSwipeGestureTargetUnder(
-            float x,
-            float y,
-            @NonNull TouchControlButtonView primaryControl
-    ) {
+    private TouchControlButtonView findSwipeGestureTargetUnder(float x, float y) {
         TouchControlButtonView nearest = null;
         float nearestDistanceSquared = Float.MAX_VALUE;
         float transferPadding = Math.max(

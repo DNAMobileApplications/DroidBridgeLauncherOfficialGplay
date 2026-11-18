@@ -3707,6 +3707,15 @@ public class MinecraftGLSurface extends FrameLayout implements GrabListener {
         if (!hasFocus()) requestFocus();
     }
 
+    /** This view takes the focus, so a captured mouse's events come here (see safeRequestPointerCapture). */
+    private void ensureFocusForPointerCapture() {
+        if (hasFocus()) return;
+        boolean focused = requestFocus();
+        LauncherLogManager.append("DroidBridgePhysicalMouse: game view "
+                + (focused ? "took the focus" : "could not take the focus")
+                + " for the mouse capture");
+    }
+
     @Override
     public void onGrabState(boolean isGrabbing) {
         grabbed = isGrabbing;
@@ -3867,6 +3876,8 @@ public class MinecraftGLSurface extends FrameLayout implements GrabListener {
     public void onPointerCaptureChange(boolean hasCapture) {
         super.onPointerCaptureChange(hasCapture);
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+        // (a capture another path asked for: its events come here only if this is focused)
+        if (hasCapture) ensureFocusForPointerCapture();
 
         post(() -> {
             boolean currentlyGrabbed = grabbed || CallbackBridge.isGrabbing();
@@ -4260,6 +4271,12 @@ public class MinecraftGLSurface extends FrameLayout implements GrabListener {
     private void safeRequestPointerCapture() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !hasWindowFocus() || !isShown()) return;
         if (!shouldUsePointerCapture()) return;
+        // Android hands a captured mouse's events only to the window's focused view. If the
+        // mouse hasn't moved since the game started (a mouse and keyboard plugged in while
+        // it loads), nothing has given this view the focus yet (the loading log overlay had
+        // it on some devices, a Galaxy S20 FE): the capture then took the mouse away and its
+        // events went nowhere, the cursor stuck in the middle until a touch focused the view.
+        ensureFocusForPointerCapture();
         try {
             requestPointerCapture();
         } catch (Throwable ignored) {

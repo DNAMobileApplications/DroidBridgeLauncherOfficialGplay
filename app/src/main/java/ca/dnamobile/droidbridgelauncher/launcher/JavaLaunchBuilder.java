@@ -52,6 +52,7 @@ import ca.dnamobile.droidbridgelauncher.data.AccountStore;
 import ca.dnamobile.droidbridgelauncher.feature.log.Logging;
 import ca.dnamobile.droidbridgelauncher.network.MinecraftDownloadSource;
 import ca.dnamobile.droidbridgelauncher.modcompat.BtaGlfwBufferCompat;
+import ca.dnamobile.droidbridgelauncher.modcompat.BundledJnaCompat;
 import ca.dnamobile.droidbridgelauncher.modcompat.ControllerModCompat;
 import ca.dnamobile.droidbridgelauncher.modcompat.ControlifySDL;
 import ca.dnamobile.droidbridgelauncher.modcompat.FFmpegPluginCompat;
@@ -1883,8 +1884,10 @@ public final class JavaLaunchBuilder {
         values.put("${resolution_width}", String.valueOf(launchWidth));
         values.put("${resolution_height}", String.valueOf(launchHeight));
         values.put("${natives_directory}", lwjglNativesDir.getAbsolutePath());
-        values.put("${launcher_name}", "JavaLauncher");
-        values.put("${launcher_version}", "1.0");
+        // Identify honestly as DroidBridge so mods that check the launcher brand
+        // (minecraft.launcher.brand), such as MCSR Ranked, can recognise it.
+        values.put("${launcher_name}", "DroidBridge");
+        values.put("${launcher_version}", resolveLauncherVersionName());
         values.put("${library_directory}", MinecraftVersionInstaller.getLibrariesDirectory().getAbsolutePath());
         values.put("${classpath_separator}", ":");
         values.put("${classpath}", classPath);
@@ -2446,6 +2449,17 @@ public final class JavaLaunchBuilder {
         VerityNativeCompat.prepare(context, gameDirectory);
 
         String jnaNativePath = buildJnaNativePath();
+        // A Fabric/Quilt mod that shades its own JNA (MCSR Ranked 6.x ships JNA 5.x for
+        // its anti-cheat) wins over Minecraft's JNA on the Knot classpath. Put the exact
+        // Android libjnidispatch for that JNA first, or JNA aborts the launch with
+        // "There is an incompatible JNA native library installed on this system".
+        File bundledJnaNativeDir = BundledJnaCompat.prepare(context, gameDirectory, versionJson);
+        if (bundledJnaNativeDir != null) {
+            StringBuilder jnaPathBuilder = new StringBuilder();
+            addPath(jnaPathBuilder, bundledJnaNativeDir);
+            addPathList(jnaPathBuilder, jnaNativePath);
+            jnaNativePath = jnaPathBuilder.toString();
+        }
         String jnaLibraryPath = ControllerModCompat.buildJnaLibraryPath(context, gameDirectory, jnaNativePath);
         boolean controllablePresent = ControllerModCompat.hasControllable(gameDirectory);
         boolean controlifyPresent = ControlifySDL.hasControlify(gameDirectory);
@@ -3221,6 +3235,18 @@ public final class JavaLaunchBuilder {
         return new File(library.trim()).getName();
     }
 
+
+    @NonNull
+    private String resolveLauncherVersionName() {
+        try {
+            String name = context.getPackageManager()
+                    .getPackageInfo(context.getPackageName(), 0)
+                    .versionName;
+            if (name != null && !name.trim().isEmpty()) return name.trim();
+        } catch (Throwable ignored) {
+        }
+        return "unknown";
+    }
 
     @NonNull
     private String getClientModNameForRenderer(@Nullable RendererInterface renderer) {

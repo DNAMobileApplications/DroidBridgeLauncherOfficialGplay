@@ -116,6 +116,7 @@ import ca.dnamobile.droidbridgelauncher.engine.GameEngine;
 import ca.dnamobile.droidbridgelauncher.engine.horizon.HorizonAddons;
 import ca.dnamobile.droidbridgelauncher.engine.horizon.HorizonEngine;
 import ca.dnamobile.droidbridgelauncher.engine.horizon.HorizonInstanceMods;
+import ca.dnamobile.droidbridgelauncher.engine.horizon.HorizonShaderBrowser;
 import ca.dnamobile.droidbridgelauncher.engine.horizon.RustModBrowser;
 import ca.dnamobile.droidbridgelauncher.engine.rustcraft.RustcraftEngine;
 import ca.dnamobile.droidbridgelauncher.engine.rustcraft.RustcraftMods;
@@ -4261,7 +4262,99 @@ public final class InstanceDetailsActivity extends ControllerNavigationActivity 
             }
             return;
         }
+        if (selectedCategory == ResourceCategory.SHADERPACKS && usesHorizonMods() && HorizonShaderBrowser.listed()) {
+            // The Rust engine runs two kinds: its own .hshader packs and classic shaders/ packs.
+            chooseShaderSource();
+            return;
+        }
+        openContentBrowser();
+    }
 
+    /**
+     * Browse Content in a Rust engine instance's Shaders tab: Horizon's own shader packs, or the
+     * classic Iris/OptiFine packs from Modrinth and CurseForge.
+     */
+    private void chooseShaderSource() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(20), dp(8), dp(20), dp(4));
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle("Which shaders?")
+                .setView(box)
+                .setNegativeButton(android.R.string.cancel, null)
+                .create();
+        box.addView(shaderSourceCard(R.drawable.ic_shader_source_rust, "Rust engine shaders",
+                ".hshader packs made for this engine · needs Vulkan", () -> {
+                    dialog.dismiss();
+                    if (gameDirectory == null) {
+                        Toast.makeText(this, "This instance's folder isn't ready yet.", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    HorizonShaderBrowser.show(this, gameDirectory, this::refreshContentList,
+                            this::showFullscreenSafeDialog);
+                }));
+        box.addView(shaderSourceCard(R.drawable.ic_shader_source_java, "Java shaders",
+                "Iris / OptiFine packs from Modrinth and CurseForge · experimental", () -> {
+                    dialog.dismiss();
+                    openContentBrowser();
+                }));
+        showFullscreenSafeDialog(dialog);
+    }
+
+    /** One choice of {@link #chooseShaderSource}: a tappable card with an icon, a title and a line. */
+    @NonNull
+    private View shaderSourceCard(int icon, @NonNull String title, @NonNull String detail,
+                                  @NonNull Runnable onChosen) {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setPadding(dp(14), dp(14), dp(14), dp(14));
+        card.setBackground(new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(LauncherDialogStyle.COLOR_CARD_BG_PRESSED),
+                LauncherDialogStyle.roundedDrawable(this, LauncherDialogStyle.COLOR_CARD_BG,
+                        LauncherDialogStyle.COLOR_CARD_STROKE, 16),
+                null));
+        card.setClickable(true);
+        card.setFocusable(true);
+        card.setOnClickListener(view -> onChosen.run());
+
+        ImageView image = new ImageView(this);
+        image.setImageResource(icon);
+        image.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        card.addView(image, new LinearLayout.LayoutParams(dp(44), dp(44)));
+
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        texts.setPadding(dp(14), 0, 0, 0);
+        TextView name = new TextView(this);
+        name.setText(title);
+        name.setTextColor(LauncherDialogStyle.COLOR_TEXT_PRIMARY);
+        name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
+        name.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        texts.addView(name);
+        TextView line = new TextView(this);
+        line.setText(detail);
+        line.setTextColor(LauncherDialogStyle.COLOR_TEXT_MUTED);
+        line.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        texts.addView(line);
+        card.addView(texts, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView arrow = new TextView(this);
+        arrow.setText("›");
+        arrow.setTextColor(LauncherDialogStyle.COLOR_TEXT_MUTED);
+        arrow.setTextSize(TypedValue.COMPLEX_UNIT_SP, 26);
+        arrow.setPadding(dp(8), 0, 0, 0);
+        card.addView(arrow);
+
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.setMargins(0, dp(6), 0, dp(6));
+        card.setLayoutParams(params);
+        return card;
+    }
+
+    /** Modrinth / CurseForge Browse Content for the selected tab. */
+    private void openContentBrowser() {
         Intent intent = new Intent(this, ContentBrowserActivity.class);
         intent.putExtra(EXTRA_INSTANCE_ID, instanceId);
         intent.putExtra(EXTRA_INSTANCE_NAME, instanceName);

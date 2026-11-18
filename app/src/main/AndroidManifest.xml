@@ -276,7 +276,8 @@
         <!-- Rust Craft engine: Minecraft Java rewritten in Rust, offered per instance, a title
              update for each version: TU1 for vanilla 1.0 (RustcraftActivity), TU2 for 1.1
              (RustcraftTu2Activity), TU3 for 1.2.5 (RustcraftTu3Activity), TU4 for 1.3.2
-             (RustcraftTu4Activity), TU5 for 1.4.7 (RustcraftTu5Activity). Enabled only in builds that bundle librustcraft_android.so
+             (RustcraftTu4Activity), TU5 for 1.4.7 (RustcraftTu5Activity),
+             TU6 for 1.5.2 (RustcraftTu6Activity), TU7 for 1.6.4 (RustcraftTu7Activity). Enabled only in builds that bundle librustcraft_android.so
              (app/build.gradle). RustcraftLaunchActivity checks the account in the launcher
              process, then starts RustcraftActivity in :rustcraft; that process ends when the
              player quits, which returns them here. -->
@@ -382,6 +383,46 @@
             <meta-data
                 android:name="android.app.lib_name"
                 android:value="rustcraft_tu5" />
+        </activity>
+        <!-- Rust Craft TU6 (Minecraft 1.5.2): the same host as RustcraftActivity (TU1, 1.0), on its
+             own library, librustcraft_tu6.so, since a NativeActivity takes its library from its
+             own entry here. RustcraftLaunchActivity starts the title update an instance's
+             Minecraft version needs (engine/rustcraft/RustcraftEngine). -->
+        <activity
+            android:name="dev.rustcraft.android.RustcraftTu6Activity"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.rustcraft"
+            android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|touchscreen|uiMode"
+            android:enabled="${rustcraftEngineEnabled}"
+            android:exported="false"
+            android:process=":rustcraft"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/HorizonGameTheme"
+            android:windowSoftInputMode="adjustResize">
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="rustcraft_tu6" />
+        </activity>
+        <!-- Rust Craft TU7 (Minecraft 1.6.4): the same host as RustcraftActivity (TU1, 1.0), on its
+             own library, librustcraft_tu7.so, since a NativeActivity takes its library from its
+             own entry here. RustcraftLaunchActivity starts the title update an instance's
+             Minecraft version needs (engine/rustcraft/RustcraftEngine). -->
+        <activity
+            android:name="dev.rustcraft.android.RustcraftTu7Activity"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
+            android:taskAffinity="${applicationId}.rustcraft"
+            android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|touchscreen|uiMode"
+            android:enabled="${rustcraftEngineEnabled}"
+            android:exported="false"
+            android:process=":rustcraft"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/HorizonGameTheme"
+            android:windowSoftInputMode="adjustResize">
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="rustcraft_tu7" />
         </activity>
 
         <!-- Horizon engine: Minecraft Java 26.3 rewritten in Rust, offered per instance.

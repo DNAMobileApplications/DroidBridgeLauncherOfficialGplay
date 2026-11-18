@@ -158,6 +158,16 @@ public class RustcraftActivity extends android.app.NativeActivity {
     };
     /** Android button state last sent for the captured mouse. */
     private int capturedButtons;
+    /**
+     * The view that has the focus in the game's window, so the captured mouse reaches it:
+     * Android hands a captured mouse's events only to the focused view, and NativeActivity's
+     * own view never takes the focus (it isn't focusable), so with the input queue taken back
+     * (host controls) a captured mouse's motion and buttons went nowhere: the camera didn't
+     * turn and clicks did nothing in gameplay, while menus (no capture) worked.
+     */
+    private View captureTarget;
+    private View.OnCapturedPointerListener capturedListener;
+    private boolean captureLogged;
     private boolean backDown;
     /** Lets Rust Craft hear LAN worlds announced on Wi-Fi (most phones drop multicast otherwise). */
     private android.net.wifi.WifiManager.MulticastLock multicastLock;
@@ -187,8 +197,18 @@ public class RustcraftActivity extends android.app.NativeActivity {
         setEnv(ENV_WORLD, extra(intent, EXTRA_QUICK_PLAY_WORLD));
         setEnv(ENV_RENDERER, extra(intent, EXTRA_RENDERER));
         setEnv(ENV_USERNAME, extra(intent, EXTRA_USERNAME));
-        setEnv(ENV_LOG, new File(home, "latest.log").getAbsolutePath());
+        // A fresh latest.log each launch (the last one is kept as previous.log)
+        File latestLog = new File(home, "latest.log");
+        if (latestLog.isFile()) {
+            File previousLog = new File(home, "previous.log");
+            //noinspection ResultOfMethodCallIgnored
+            previousLog.delete();
+            //noinspection ResultOfMethodCallIgnored
+            latestLog.renameTo(previousLog);
+        }
+        setEnv(ENV_LOG, latestLog.getAbsolutePath());
         setEnv(ENV_ERROR, error.getAbsolutePath());
+        rememberGameDir(home, gameDir);
 
         ensureNativeLibraryLoaded();
         // DroidBridge's Game Orientation (Portrait, Reverse landscape, Centered Game View...)
@@ -406,14 +426,20 @@ public class RustcraftActivity extends android.app.NativeActivity {
             pictureInPictureWasActive = false;
         }
         applyDisplaySettings();
-        if (controls != null) controls.onResume();
+        if (controls != null) {
+            controls.onResume();
+            focusCaptureTarget();
+        }
     }
 
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         // (some OEMs reset the window's attributes after a focus or orientation change)
-        if (hasFocus) applyDisplaySettings();
+        if (hasFocus) {
+            applyDisplaySettings();
+            focusCaptureTarget();
+        }
     }
 
     // --- Display: Force Fullscreen, Ignore display notch, Game Orientation -----------
@@ -560,8 +586,9 @@ public class RustcraftActivity extends android.app.NativeActivity {
     @Override
     public boolean dispatchGenericMotionEvent(MotionEvent event) {
         if (controls != null) {
-            if (controls.handleMotionEvent(event)) return true;
+            // (a captured mouse's steps first: the controls would take them as a pointer)
             if (isCapturedMouse(event)) return onCapturedMouse(event);
+            if (controls.handleMotionEvent(event)) return true;
         }
         return super.dispatchGenericMotionEvent(event);
     }
@@ -578,6 +605,7 @@ public class RustcraftActivity extends android.app.NativeActivity {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         try {
             View.OnCapturedPointerListener listener = (view, event) -> onCapturedMouse(event);
+            capturedListener = listener;
             View decor = getWindow().getDecorView();
             decor.setOnCapturedPointerListener(listener);
             View content = findViewById(android.R.id.content);
@@ -592,6 +620,44 @@ public class RustcraftActivity extends android.app.NativeActivity {
             }
         } catch (Throwable problem) {
             Log.w(TAG, "Could not listen for the captured mouse", problem);
+        }
+        focusCaptureTarget();
+    }
+
+    /**
+     * Gives the game's own view (NativeActivity's, under android.R.id.content) the focus, so
+     * a mouse captured on this window has somewhere to go (see captureTarget). Asked again
+     * whenever the window gets the focus back (the Android keyboard, a dialog, Recents).
+     */
+    private void focusCaptureTarget() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || controls == null && capturedListener == null) return;
+        try {
+            View target = captureTarget;
+            if (target == null) {
+                View content = findViewById(android.R.id.content);
+                if (content instanceof ViewGroup && ((ViewGroup) content).getChildCount() > 0) {
+                    target = ((ViewGroup) content).getChildAt(0);
+                } else {
+                    target = content != null ? content : getWindow().getDecorView();
+                }
+                captureTarget = target;
+                if (capturedListener != null) target.setOnCapturedPointerListener(capturedListener);
+                target.setOnFocusChangeListener((view, focused) -> {
+                    if (!focused) view.post(this::focusCaptureTarget);
+                });
+            }
+            if (!target.isFocusable()) target.setFocusable(true);
+            if (!target.isFocusableInTouchMode()) target.setFocusableInTouchMode(true);
+            if (!target.isFocused()) {
+                boolean got = target.requestFocus();
+                if (!captureLogged) {
+                    captureLogged = true;
+                    Log.i(TAG, "Captured mouse target " + target.getClass().getSimpleName()
+                            + (got ? " focused" : " could not take the focus"));
+                }
+            }
+        } catch (Throwable problem) {
+            Log.w(TAG, "Could not focus the game's view for the captured mouse", problem);
         }
     }
 
@@ -619,10 +685,22 @@ public class RustcraftActivity extends android.app.NativeActivity {
             dx += event.getX();
             dy += event.getY();
             if (dx != 0f || dy != 0f) {
-                float scale = RustcraftEngineInput.mouseScale();
-                CallbackBridge.sendCursorPos(CallbackBridge.mouseX + dx * scale,
-                        CallbackBridge.mouseY + dy * scale);
-                keepCursorNearTheWindow();
+                boolean gameplay = RustcraftInput.isGrabbed();
+                if (gameplay) {
+                    float scale = RustcraftEngineInput.mouseScale();
+                    CallbackBridge.sendCursorPos(CallbackBridge.mouseX + dx * scale,
+                            CallbackBridge.mouseY + dy * scale);
+                    keepCursorNearTheWindow();
+                } else {
+                    // a menu: DroidBridge's cursor (the engine's) moves by the steps, from
+                    // where it is (the middle as a menu opens), and stays on the screen
+                    float scale = RustcraftEngineInput.menuMouseScale();
+                    int width = Math.max(1, CallbackBridge.windowWidth);
+                    int height = Math.max(1, CallbackBridge.windowHeight);
+                    float x = Math.max(0f, Math.min(width - 1f, CallbackBridge.mouseX + dx * scale));
+                    float y = Math.max(0f, Math.min(height - 1f, CallbackBridge.mouseY + dy * scale));
+                    CallbackBridge.sendCursorPos(x, y);
+                }
             }
         }
         int buttons = action == MotionEvent.ACTION_CANCEL ? 0 : event.getButtonState();
@@ -680,6 +758,16 @@ public class RustcraftActivity extends android.app.NativeActivity {
         if (intent == null) return null;
         String value = intent.getStringExtra(key);
         return value == null || value.trim().isEmpty() ? null : value.trim();
+    }
+
+    /** Notes which instance ran last, so Share logs can find its logs/frames.log. */
+    private static void rememberGameDir(String home, String gameDir) {
+        if (gameDir == null) return;
+        try (java.io.FileOutputStream out = new java.io.FileOutputStream(new File(home, "last-game-dir.txt"))) {
+            out.write(gameDir.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (Throwable error) {
+            Log.w(TAG, "Could not remember the game folder", error);
+        }
     }
 
     private static void setEnv(String key, String value) {

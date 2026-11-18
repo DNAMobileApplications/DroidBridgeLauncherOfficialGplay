@@ -290,7 +290,7 @@ public final class HorizonActivity extends android.app.NativeActivity {
             } catch (InterruptedException ignored) {
                 Thread.currentThread().interrupt();
             }
-            System.exit(0);
+            exitProcess();
         }, "droidbridge-horizon-pip-close");
         exitThread.setDaemon(false);
         exitThread.start();
@@ -413,7 +413,7 @@ public final class HorizonActivity extends android.app.NativeActivity {
             } catch (InterruptedException ignored) {
                 Thread.currentThread().interrupt();
             }
-            System.exit(0);
+            exitProcess();
         }, "droidbridge-horizon-quit");
         exitThread.setDaemon(false);
         exitThread.start();
@@ -464,8 +464,29 @@ public final class HorizonActivity extends android.app.NativeActivity {
         // reused for another native event loop. Home/Recents does not finish the Activity.
         if (isFinishing() && !isChangingConfigurations() && !quitting) {
             Log.i(TAG, "Horizon Activity finished; closing dedicated :horizon process");
-            System.exit(0);
+            exitProcess();
         }
+    }
+
+    /**
+     * Ends the :horizon process. System.exit runs the native exit handlers, and a GPU driver's
+     * handler can block forever while the render thread is still inside a driver call (a heavy
+     * shader pack makes that likely), leaving the game hung in the background. A daemon
+     * watchdog kills the process outright if exit hasn't finished in time, as Force Close does.
+     */
+    private static void exitProcess() {
+        Thread watchdog = new Thread(() -> {
+            try {
+                Thread.sleep(1500L);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+            Log.w(TAG, "System.exit did not finish; killing the :horizon process");
+            android.os.Process.killProcess(android.os.Process.myPid());
+        }, "droidbridge-horizon-exit-watchdog");
+        watchdog.setDaemon(true);
+        watchdog.start();
+        System.exit(0);
     }
 
     /** Controller buttons the engine left to DroidBridge's mapper (host controls only). */

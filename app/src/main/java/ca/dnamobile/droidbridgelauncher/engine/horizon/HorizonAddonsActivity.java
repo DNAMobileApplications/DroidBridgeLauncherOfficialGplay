@@ -127,6 +127,8 @@ public final class HorizonAddonsActivity extends AppCompatActivity {
 
     @Nullable private List<HorizonAddons.NativeMod> nativeMods;
     @Nullable private List<HorizonModCatalog.Project> catalog;
+    /** The Shaders tab's "loading the registry" card, replaced by the registry's packs. */
+    @Nullable private View shaderCatalogLoading;
     /** This engine's native hook points version: 0 not asked yet, -1 unknown. */
     private int engineHooks;
     /** For the catalog's built-in rows: this instance's switches. */
@@ -276,6 +278,12 @@ public final class HorizonAddonsActivity extends AppCompatActivity {
                 break;
             case SHADERS:
                 addAction("Import shader pack", true, view -> pick(REQUEST_IMPORT_SHADER));
+                if (HorizonModCatalog.SHADERS_LISTED) {
+                    addAction("Refresh", false, view -> {
+                        refreshCatalog = true;
+                        showTab(Tab.SHADERS);
+                    });
+                }
                 loadShaders();
                 break;
             case CATALOG:
@@ -415,11 +423,25 @@ public final class HorizonAddonsActivity extends AppCompatActivity {
 
     private void loadShaders() {
         int at = generation;
+        boolean refresh = refreshCatalog || catalog == null;
+        refreshCatalog = false;
         setStatus("Reading this instance's shader packs...", true);
         worker.execute(() -> {
             List<HorizonAddons.Item> items = inspectAll(HorizonAddons.listShaders(gameDir));
             String picked = HorizonAddons.pickedShader(gameDir);
             post(at, () -> renderShaders(items, picked));
+            if (!HorizonModCatalog.SHADERS_LISTED) return;
+            // Then the registry's shader packs, below this instance's own.
+            List<HorizonModCatalog.Project> projects = null;
+            String failure = null;
+            try {
+                projects = catalogProjects(refresh);
+            } catch (IOException error) {
+                failure = error.getMessage();
+            }
+            List<HorizonModCatalog.Project> shown = projects;
+            String failed = failure;
+            post(at, () -> renderShaderCatalog(shown, failed));
         });
     }
 
@@ -428,7 +450,7 @@ public final class HorizonAddonsActivity extends AppCompatActivity {
         setStatus("Folder: " + HorizonAddons.folder(gameDir, HorizonAddons.Kind.SHADER).getAbsolutePath(), false);
 
         LinearLayout about = card();
-        cardText(about, "Native shader packs (.hshader) are fully supported. Classic shaders/ ZIPs (Iris and "
+        cardText(about, "Native shader packs (.hshader) are supported with the Vulkan graphics API. Classic shaders/ ZIPs (Iris and "
                 + "OptiFine packs) are experimental in the Rust engine, so some effects won't show.",
                 LauncherDialogStyle.COLOR_TEXT_SECONDARY, 13);
         cardText(about, "You can also pick one in game, under Shader Packs in the engine's settings.",
@@ -451,6 +473,48 @@ public final class HorizonAddonsActivity extends AppCompatActivity {
                 cardText(row, "Won't load: " + item.problem, LauncherDialogStyle.COLOR_ERROR, 12);
             }
             if (item.file.isFile()) rowActions(row, "Remove", view -> confirmRemove(item));
+        }
+
+        shaderCatalogLoading = null;
+        if (HorizonModCatalog.SHADERS_LISTED) {
+            section("Get shader packs");
+            LinearLayout loading = card();
+            cardText(loading, "Reading Horizon's shader packs...", LauncherDialogStyle.COLOR_TEXT_MUTED, 12);
+            shaderCatalogLoading = loading;
+        }
+    }
+
+    /** The registry's shader packs made for this game version, each with Install or Reinstall. */
+    private void renderShaderCatalog(@Nullable List<HorizonModCatalog.Project> projects, @Nullable String failure) {
+        if (shaderCatalogLoading != null) {
+            list.removeView(shaderCatalogLoading);
+            shaderCatalogLoading = null;
+        }
+        if (projects == null) {
+            LinearLayout failed = card();
+            cardText(failed, "Horizon's shader packs could not be reached.", LauncherDialogStyle.COLOR_TEXT_PRIMARY, 14);
+            cardText(failed, failure == null ? "Check your connection and press Refresh." : failure,
+                    LauncherDialogStyle.COLOR_TEXT_MUTED, 12);
+            return;
+        }
+        String game = HorizonEngine.MINECRAFT_VERSION;
+        int shown = 0;
+        for (HorizonModCatalog.Project project : projects) {
+            if (project.installKind() != HorizonAddons.Kind.SHADER) continue;
+            HorizonModCatalog.Version version = project.newestFor(game);
+            if (version == null) continue;
+            shown++;
+            LinearLayout row = card();
+            rowTitle(row, project.name, "Shader pack · " + version.version
+                    + (project.authors.isEmpty() ? "" : " · by " + project.authors));
+            if (!project.summary.isEmpty()) cardText(row, project.summary, LauncherDialogStyle.COLOR_TEXT_SECONDARY, 13);
+            rowActions(row, destinationFor(project, version).exists() ? "Reinstall" : "Install",
+                    view -> install(project, version));
+        }
+        if (shown == 0) {
+            LinearLayout empty = card();
+            cardText(empty, "No shader packs are listed for " + game + " right now.",
+                    LauncherDialogStyle.COLOR_TEXT_MUTED, 12);
         }
     }
 
@@ -476,9 +540,7 @@ public final class HorizonAddonsActivity extends AppCompatActivity {
         worker.execute(() -> {
             List<HorizonModCatalog.Project> projects;
             try {
-                projects = refresh ? HorizonModCatalog.load(this, true) : catalog;
-                if (projects == null) projects = HorizonModCatalog.load(this, false);
-                catalog = projects;
+                projects = catalogProjects(refresh);
             } catch (IOException error) {
                 String message = error.getMessage();
                 post(at, () -> {
@@ -506,6 +568,15 @@ public final class HorizonAddonsActivity extends AppCompatActivity {
         });
     }
 
+    /** The registry's projects: downloaded again when {@code refresh}, else the ones read before. Worker thread. */
+    @NonNull
+    private List<HorizonModCatalog.Project> catalogProjects(boolean refresh) throws IOException {
+        List<HorizonModCatalog.Project> projects = refresh ? HorizonModCatalog.load(this, true) : catalog;
+        if (projects == null) projects = HorizonModCatalog.load(this, false);
+        catalog = projects;
+        return projects;
+    }
+
     private void renderCatalog(
             @NonNull List<HorizonModCatalog.Project> projects,
             @NonNull Map<String, String> installedMods,
@@ -517,13 +588,17 @@ public final class HorizonAddonsActivity extends AppCompatActivity {
         List<HorizonModCatalog.Project> installable = new ArrayList<>();
         List<HorizonModCatalog.Project> nativeProjects = new ArrayList<>();
         int other = 0;
+        int shaders = 0;
         for (HorizonModCatalog.Project project : projects) {
             if (project.newestFor(game) == null) continue;
-            if (project.installKind() != null) installable.add(project);
+            // Shader packs are offered in the Shaders tab, next to the installed ones.
+            if (project.installKind() == HorizonAddons.Kind.SHADER) shaders++;
+            else if (project.installKind() != null) installable.add(project);
             else if (project.isNative()) nativeProjects.add(project);
             else other++;
         }
         setStatus(projects.size() + " projects in the mod catalog · showing those made for " + game
+                + (shaders > 0 ? " · " + shaders + " shader packs are in the Shaders tab" : "")
                 + (other > 0 ? " · " + other + " modpacks or other kinds not shown" : ""), false);
 
         section("Install here");

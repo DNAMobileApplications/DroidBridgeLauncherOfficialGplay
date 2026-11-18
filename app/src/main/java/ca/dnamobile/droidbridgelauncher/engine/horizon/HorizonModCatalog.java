@@ -10,6 +10,9 @@
 package ca.dnamobile.droidbridgelauncher.engine.horizon;
 
 import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.util.LruCache;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -57,6 +60,16 @@ final class HorizonModCatalog {
     private static final long INDEX_MAX_BYTES = 16L << 20;
     private static final int CONNECT_TIMEOUT_MS = 20_000;
     private static final int READ_TIMEOUT_MS = 90_000;
+    /** The registry's icons are at most 256 KiB (its README); a little room over that. */
+    private static final long ICON_MAX_BYTES = 300L * 1024L;
+    /** Icons shown so far, by address (decoded down to about 128 px). */
+    private static final LruCache<String, Bitmap> ICONS = new LruCache<>(48);
+
+    /**
+     * Whether the registry's shader packs (kind {@code shader}) are offered. On since the engine
+     * draws shader API 0.1, the line Horizon's registry lists (see {@link Project#installKind}).
+     */
+    static final boolean SHADERS_LISTED = true;
 
     private HorizonModCatalog() {
     }
@@ -256,6 +269,8 @@ final class HorizonModCatalog {
         @NonNull final String authors;
         @NonNull final String license;
         @NonNull final String source;
+        /** Its icon's https:// address, or "" when it has none. */
+        @NonNull final String icon;
         final long downloads;
         @NonNull final List<Version> versions = new ArrayList<>();
 
@@ -266,6 +281,7 @@ final class HorizonModCatalog {
             summary = json.optString("summary", "");
             license = json.optString("license", "");
             source = json.optString("source", "");
+            icon = json.optString("icon", "");
             downloads = json.optLong("downloads", 0);
             JSONArray people = json.optJSONArray("authors");
             StringBuilder joined = new StringBuilder();
@@ -300,14 +316,20 @@ final class HorizonModCatalog {
             return "native-mod".equals(kind);
         }
 
-        /** The kinds this screen installs on the phone. */
+        /**
+         * The kinds this screen installs on the phone. Horizon's own shader packs (kind
+         * {@code shader}, .hshader) are listed while {@link #SHADERS_LISTED} is on: the engine reads
+         * shader API 0.1 packs (vertex stage, shadow options) and draws them with Vulkan. Surface
+         * data, particle lights, displacement and ray tracing aren't drawn yet, and OpenGL ES
+         * can't run them. Classic shaders/ packs and .hshader files imported by hand are not affected.
+         */
         @Nullable
         HorizonAddons.Kind installKind() {
             switch (kind) {
                 case "mod":
                     return HorizonAddons.Kind.MOD;
                 case "shader":
-                    return HorizonAddons.Kind.SHADER;
+                    return SHADERS_LISTED ? HorizonAddons.Kind.SHADER : null;
                 case "resourcepack":
                     return HorizonAddons.Kind.RESOURCE_PACK;
                 default:
@@ -356,6 +378,46 @@ final class HorizonModCatalog {
             return projects;
         } catch (JSONException error) {
             throw new IOException("The mod catalog could not be read.", error);
+        }
+    }
+
+    /**
+     * {@code project}'s icon, or null when it has none or it can't be had: from memory, else from
+     * the cache folder, else downloaded (and kept there). Worker thread.
+     */
+    @Nullable
+    static Bitmap icon(@NonNull Context context, @NonNull Project project) {
+        String address = project.icon;
+        if (!address.startsWith("https://")) return null;
+        Bitmap cached = ICONS.get(address);
+        if (cached != null) return cached;
+        File dir = new File(context.getCacheDir(), "horizon-mod-icons");
+        // (named by the address too, so a project's new icon is fetched again)
+        File file = new File(dir, project.id.replaceAll("[^a-z0-9_]", "_") + "-"
+                + Integer.toHexString(address.hashCode()) + ".img");
+        try {
+            if (!file.isFile()) {
+                if (!dir.isDirectory() && !dir.mkdirs()) return null;
+                download(address, file, ICON_MAX_BYTES, -1, null);
+            }
+            BitmapFactory.Options bounds = new BitmapFactory.Options();
+            bounds.inJustDecodeBounds = true;
+            BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+                //noinspection ResultOfMethodCallIgnored
+                file.delete();
+                return null;
+            }
+            BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inSampleSize = 1;
+            while (Math.max(bounds.outWidth, bounds.outHeight) / (options.inSampleSize * 2) >= 128) {
+                options.inSampleSize *= 2;
+            }
+            Bitmap bitmap = BitmapFactory.decodeFile(file.getAbsolutePath(), options);
+            if (bitmap != null) ICONS.put(address, bitmap);
+            return bitmap;
+        } catch (IOException | RuntimeException error) {
+            return null;
         }
     }
 

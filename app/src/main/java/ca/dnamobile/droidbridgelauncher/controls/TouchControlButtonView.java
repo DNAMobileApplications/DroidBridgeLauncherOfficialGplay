@@ -891,6 +891,10 @@ final class TouchControlButtonView extends TextView {
     private void scheduleHoldRepeatIfEnabled() {
         cancelHoldRepeat();
         if (!data.repeatOnHold || data.toggle || !isRepeatableHoldAction()) return;
+        // With Swipeable gesture, Repeat while held means the button stays held while the
+        // finger slides onto other buttons (TouchControlsOverlay): a steady press, not a
+        // repeated one (Sneak would flick on and off).
+        if (data.swipeGesture) return;
 
         holdRepeatRunnable = new Runnable() {
             @Override
