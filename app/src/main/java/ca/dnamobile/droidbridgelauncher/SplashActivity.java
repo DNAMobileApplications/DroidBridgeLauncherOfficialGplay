@@ -75,10 +75,11 @@ public class SplashActivity extends AppCompatActivity {
         installButton.setOnClickListener(view -> startMissingComponentInstall());
         continueButton.setOnClickListener(view -> openMainActivity());
 
-        PathManager.initContextConstants(this);
-        RuntimeComponentMigration.runIfNeeded(this);
-        PathManager.initContextConstants(this);
-
+        // Path setup creates directories under the launcher home (often an SD card
+        // behind Android's FUSE layer) and the migration may delete component caches.
+        // Both now run on the component-check thread: right after boot the media
+        // scanner can keep that storage busy for many seconds, and doing this on the
+        // UI thread made Android report the launcher as not responding (ANR).
         checkComponentStateAsync();
     }
 
@@ -93,6 +94,16 @@ public class SplashActivity extends AppCompatActivity {
     private void checkComponentStateAsync() {
         showCheckingState();
         Thread thread = new Thread(() -> {
+            try {
+                PathManager.initContextConstants(this);
+                RuntimeComponentMigration.runIfNeeded(this);
+                PathManager.initContextConstants(this);
+            } catch (Throwable throwable) {
+                Logging.e("SplashActivity", "Unable to prepare launcher paths", throwable);
+                runOnUiThread(() -> showCheckFailure(throwable));
+                return;
+            }
+
             if (!Tools.checkStorageRoot()) {
                 runOnUiThread(this::showStorageUnavailableState);
                 return;

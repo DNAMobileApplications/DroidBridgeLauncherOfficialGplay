@@ -19,6 +19,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
 import ca.dnamobile.droidbridgelauncher.feature.log.Logging;
+import ca.dnamobile.droidbridgelauncher.instance.InstanceVersionUpdater;
 import ca.dnamobile.droidbridgelauncher.instance.LauncherInstance;
 import ca.dnamobile.droidbridgelauncher.launcher.DistantHorizonsGcMitigation;
 import ca.dnamobile.droidbridgelauncher.launcher.InstanceLaunchSettings;
@@ -58,11 +59,28 @@ public final class ModPreLaunchWarningManager {
             "distant_horizons_gc_mode_explanation";
     private static final String RULE_VOXY_RENDERER_COMPATIBILITY =
             "voxy_renderer_compatibility";
+    private static final String RULE_OPTIFINE_FORGE_COMPATIBILITY =
+            "optifine_forge_version_compatibility";
 
     private static final int MAX_DISTANT_HORIZONS_GC_WARNING_SHOWS = 1;
     private static final int MAX_VOXY_RENDERER_WARNING_SHOWS = 1;
     private static final int MAX_VULKANMOD_12111_WARNING_SHOWS = 1;
     private static final int MAX_SODIUM_1165_WARNING_SHOWS = 2;
+    // This combination always crashes at startup, so warn on every launch.
+    private static final int MAX_OPTIFINE_FORGE_WARNING_SHOWS = Integer.MAX_VALUE;
+
+    /**
+     * Known OptiFine/Forge breaks: OptiFine replaces whole Minecraft classes with
+     * its own copies, so a newer Forge build that adds methods to those classes
+     * (and calls them) crashes with NoSuchMethodError when OptiFine is present.
+     * Columns: Minecraft version, first Forge build known to break, Forge build
+     * the current OptiFine release was built for, OptiFine release name.
+     */
+    private static final String[][] OPTIFINE_FORGE_LIMITS = {
+            // Forge 47.3+ backports ResourceLocation.parse/fromNamespaceAndPath
+            // from 1.21; OptiFine 1.20.1 HD U I6's ResourceLocation lacks them.
+            {"1.20.1", "47.3.0", "47.2.18", "HD U I6"},
+    };
 
     public static final String NEUTRAL_ACTION_VULKAN_EXTENSION_CHECKER =
             "vulkan_extension_checker";
@@ -79,7 +97,12 @@ public final class ModPreLaunchWarningManager {
         LaunchContext launchContext = resolveLaunchContext(context, versionId);
 
         try {
-            Warning warning = checkVoxyRendererCompatibility(launchContext);
+            Warning warning = checkOptiFineForgeCompatibility(launchContext);
+            if (warning != null && getShownCount(context, warning.ruleId) < warning.maxShows) {
+                return warning;
+            }
+
+            warning = checkVoxyRendererCompatibility(launchContext);
             if (warning != null && getShownCount(context, warning.ruleId) < warning.maxShows) {
                 return warning;
             }
@@ -121,6 +144,102 @@ public final class ModPreLaunchWarningManager {
                 PREFS_NAME,
                 Context.MODE_PRIVATE | Context.MODE_MULTI_PROCESS
         );
+    }
+
+    @Nullable
+    private static Warning checkOptiFineForgeCompatibility(@NonNull LaunchContext launchContext) {
+        File gameDir = launchContext.gameDirectory;
+        if (gameDir == null) return null;
+        if (InstanceVersionUpdater.resolveLoaderKind(launchContext.loader) != InstanceVersionUpdater.LoaderKind.FORGE) {
+            return null;
+        }
+
+        String minecraftVersion = launchContext.minecraftVersionText.trim();
+        String[] limit = null;
+        for (String[] row : OPTIFINE_FORGE_LIMITS) {
+            if (row[0].equals(minecraftVersion)) {
+                limit = row;
+                break;
+            }
+        }
+        if (limit == null) return null;
+
+        File optiFineJar = findEnabledOptiFineJar(gameDir);
+        if (optiFineJar == null) return null;
+
+        String forgeVersion = forgeBuildNumber(InstanceVersionUpdater.resolveCurrentLoaderVersion(
+                InstanceVersionUpdater.LoaderKind.FORGE,
+                launchContext.baseVersionId,
+                minecraftVersion
+        ));
+        Logging.i(TAG, "OptiFine/Forge check: mc=" + minecraftVersion
+                + " forge=" + (forgeVersion.isEmpty() ? "<unknown>" : forgeVersion)
+                + " optifine=" + optiFineJar.getName());
+        if (forgeVersion.isEmpty() || compareVersionNumbers(forgeVersion, limit[1]) < 0) {
+            return null;
+        }
+
+        return new Warning(
+                RULE_OPTIFINE_FORGE_COMPATIBILITY + "_" + launchContext.instanceSettingsKey + "_" + forgeVersion,
+                MAX_OPTIFINE_FORGE_WARNING_SHOWS,
+                "OptiFine won't start on this Forge version",
+                "This instance has OptiFine (" + optiFineJar.getName() + ") on Forge " + forgeVersion
+                        + ". OptiFine " + limit[3] + " for Minecraft " + minecraftVersion
+                        + " was built for Forge " + limit[2] + " and crashes at startup on Forge "
+                        + limit[1] + " or newer.",
+                "How to fix",
+                "Change this instance's Forge loader to " + limit[2]
+                        + " (the version shown on OptiFine's download page), then launch again. "
+                        + "DroidBridge resets config/fml.toml automatically after a Forge downgrade.\n\n"
+                        + "Or remove OptiFine from this instance and use Embeddium + Oculus instead.\n\n"
+                        + "Some other mods need Forge " + limit[1]
+                        + " or newer; those can't be used together with OptiFine.",
+                "This warning appears on every launch while this combination is installed, because the game will crash with: NoSuchMethodError ResourceLocation.parse.",
+                displayVersion(launchContext) + " / Forge " + forgeVersion,
+                displayGameDirectory(gameDir),
+                null,
+                null
+        );
+    }
+
+    @Nullable
+    private static File findEnabledOptiFineJar(@NonNull File gameDir) {
+        for (File modsDir : getCandidateModsDirs(gameDir)) {
+            File[] jars = modsDir.listFiles(file -> file != null
+                    && file.isFile()
+                    && file.getName().toLowerCase(Locale.ROOT).endsWith(".jar")
+                    && file.getName().toLowerCase(Locale.ROOT).contains("optifine"));
+            if (jars != null && jars.length > 0) return jars[0];
+        }
+        return null;
+    }
+
+    /** "1.20.1-47.4.29" / "forge-1.20.1-47.2.18" / "47.2.18" -> "47.2.18". */
+    @NonNull
+    private static String forgeBuildNumber(@Nullable String loaderVersion) {
+        if (loaderVersion == null) return "";
+        String value = loaderVersion.trim();
+        if (value.isEmpty()) return "";
+        String[] parts = value.split("-");
+        for (int i = parts.length - 1; i >= 0; i--) {
+            String part = parts[i].trim();
+            if (part.matches("\\d+\\.\\d+(?:\\.\\d+)*") && !part.startsWith("1.")) {
+                return part;
+            }
+        }
+        return "";
+    }
+
+    private static int compareVersionNumbers(@NonNull String a, @NonNull String b) {
+        String[] left = a.split("\\.");
+        String[] right = b.split("\\.");
+        int count = Math.max(left.length, right.length);
+        for (int i = 0; i < count; i++) {
+            int l = i < left.length ? parseInt(left[i], 0) : 0;
+            int r = i < right.length ? parseInt(right[i], 0) : 0;
+            if (l != r) return Integer.compare(l, r);
+        }
+        return 0;
     }
 
     @Nullable
@@ -259,6 +378,8 @@ public final class ModPreLaunchWarningManager {
         String minecraftVersionText = extractMinecraftVersionText(versionId);
         String instanceSettingsKey = InstanceLaunchSettings.resolveInstanceKey(versionId, versionId);
         File gameDirectory = null;
+        String loader = null;
+        String baseVersionId = versionId;
 
         try {
             PathManager.initContextConstants(context);
@@ -272,6 +393,8 @@ public final class ModPreLaunchWarningManager {
                 versionText = safeJoin(versionId, instance.getBaseVersionId(), instance.getMinecraftVersionId(), instance.getName(), instance.getId());
                 instanceSettingsKey = InstanceLaunchSettings.resolveInstanceKey(instance.getId(), instance.getName());
                 gameDirectory = instance.getGameDirectory();
+                loader = instance.getLoader();
+                baseVersionId = firstNonEmpty(instance.getBaseVersionId(), versionId);
             }
         } catch (Throwable throwable) {
             Logging.e(TAG, "Unable to resolve instance for mod pre-launch warning: " + versionId, throwable);
@@ -292,7 +415,7 @@ public final class ModPreLaunchWarningManager {
             minecraftVersionText = versionText;
         }
 
-        return new LaunchContext(versionText, minecraftVersionText, gameDirectory, instanceSettingsKey);
+        return new LaunchContext(versionText, minecraftVersionText, gameDirectory, instanceSettingsKey, loader, baseVersionId);
     }
 
     @Nullable
@@ -582,17 +705,23 @@ public final class ModPreLaunchWarningManager {
         @NonNull final String minecraftVersionText;
         @Nullable final File gameDirectory;
         @NonNull final String instanceSettingsKey;
+        @Nullable final String loader;
+        @Nullable final String baseVersionId;
 
         LaunchContext(
                 @NonNull String versionText,
                 @NonNull String minecraftVersionText,
                 @Nullable File gameDirectory,
-                @NonNull String instanceSettingsKey
+                @NonNull String instanceSettingsKey,
+                @Nullable String loader,
+                @Nullable String baseVersionId
         ) {
             this.versionText = versionText;
             this.minecraftVersionText = minecraftVersionText;
             this.gameDirectory = gameDirectory;
             this.instanceSettingsKey = instanceSettingsKey;
+            this.loader = loader;
+            this.baseVersionId = baseVersionId;
         }
     }
 

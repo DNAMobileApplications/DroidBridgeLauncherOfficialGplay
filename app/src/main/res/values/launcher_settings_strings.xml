@@ -479,4 +479,12 @@ The current data folder will be moved aside first so it can be recovered manuall
     <string name="cm_client_picker_title">Install CM Client</string>
     <string name="cm_client_picker_summary">Choose a CM Client release. DroidBridge installs the official client files and creates an isolated instance.</string>
 
+    <string name="renderer_download_choose_summary">Choose which MobileGlues renderer to download.</string>
+    <string name="renderer_download_original_title">MobileGlues (Original)</string>
+    <string name="renderer_download_original_summary">The original MobileGlues renderer. Works for older versions but has issues with Minecraft 26.3 and newer.</string>
+    <string name="renderer_download_original_button">Download Original</string>
+    <string name="renderer_download_towo_title">MobileGlues TOWO Fork</string>
+    <string name="renderer_download_towo_summary">A fork of MobileGlues that fixes Minecraft 26.3 and newer. Recommended if you play 26.3+.</string>
+    <string name="renderer_download_towo_button">Download TOWO Fork</string>
+
 </resources>

@@ -294,6 +294,11 @@ public final class JavaLaunchBuilder {
         File lwjglNativesDir = resolveLwjglNativeDir(lwjglComponentDir);
         MinecraftVersionInstaller.ensureJnaNativesForLaunch(context, versionId, versionJson);
         boolean forgeLaunch = isForgeOrBootstrapVersion(versionJson);
+        if (forgeLaunch) {
+            // Reset config/fml.toml after a Forge/NeoForge downgrade; older FML
+            // nulls keys written by newer builds and crashes the early window.
+            ForgeConfigVersionGuard.prepare(versionJson, gameDirectory);
+        }
         boolean optiFinePresent = forgeLaunch && hasEnabledOptiFineModJar(gameDirectory);
         ArrayList<String> optiFineSecureJarIgnoreNames = new ArrayList<>();
         if (forgeLaunch) {

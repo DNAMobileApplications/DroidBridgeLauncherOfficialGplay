@@ -22,6 +22,23 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <!-- Not required (Play would hide the app from devices without them):
+         the landscape-only screens (sensorLandscape) imply a landscape screen,
+         the Wi-Fi permissions (LAN games) imply Wi-Fi, and RECORD_AUDIO
+         implies a microphone. Phones, tablets, Chromebooks and XR all qualify. -->
+    <uses-feature
+        android:name="android.hardware.screen.landscape"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.screen.portrait"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.wifi"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.microphone"
+        android:required="false" />
+
     <!-- Optional: gyro camera control. Never filter out devices without a gyroscope. -->
     <uses-feature
         android:name="android.hardware.sensor.gyroscope"

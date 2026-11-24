@@ -58,6 +58,10 @@ public final class PathManager {
     public static String FILE_VERSION_LIST;
     public static File FILE_NEWBIE_GUIDE;
 
+    /** Launcher home whose directory tree was already prepared in this process. */
+    @Nullable
+    private static volatile String sPreparedLauncherHome;
+
     private PathManager() {
     }
 
@@ -98,9 +102,19 @@ public final class PathManager {
         FILE_NEWBIE_GUIDE = new File(DIR_DATA, "newbie_guide.json");
         FILE_SETTINGS = new File(DIR_FILE, "launcher_settings.json");
 
-        createRequiredDirectories();
-        deleteQuietly(new File(DIR_DATA, "accounts"));
-        deleteQuietly(new File(DIR_DATA, "user_skin"));
+        // Activities call this from onCreate/onResume (often on the UI thread). The
+        // ~20 exists()/mkdirs() calls below go through Android's FUSE layer when the
+        // launcher home is on an SD card and can block for seconds while storage is
+        // busy, so only prepare the tree once per launcher home per process. The
+        // .minecraft check keeps this self-healing if the folder is removed.
+        String preparedHome = DIR_GAME_HOME;
+        if (!preparedHome.equals(sPreparedLauncherHome)
+                || !new File(DIR_MINECRAFT_HOME).isDirectory()) {
+            createRequiredDirectories();
+            deleteQuietly(new File(DIR_DATA, "accounts"));
+            deleteQuietly(new File(DIR_DATA, "user_skin"));
+            sPreparedLauncherHome = preparedHome;
+        }
         LibPath.refresh();
     }
     @NonNull
@@ -185,6 +199,27 @@ public final class PathManager {
         mkdirs(new File(DIR_MINECRAFT_HOME, "saves"));
         mkdirs(new File(DIR_MINECRAFT_HOME, "logs"));
         mkdirs(new File(DIR_MINECRAFT_HOME, "crash-reports"));
+
+        // Keep Android's media scanner out of pure game data. assets/objects alone holds
+        // tens of thousands of hashed .ogg/.png files that MediaProvider would otherwise
+        // index on shared/SD storage, adding sustained I/O load that stalls the launcher
+        // and the game. Saves, screenshots and resource packs stay visible.
+        markNoMedia(new File(DIR_MINECRAFT_HOME, "assets"));
+        markNoMedia(new File(DIR_MINECRAFT_HOME, "libraries"));
+        markNoMedia(new File(DIR_MINECRAFT_HOME, "versions"));
+    }
+
+    private static void markNoMedia(@NonNull File directory) {
+        try {
+            mkdirs(directory);
+            File marker = new File(directory, ".nomedia");
+            if (!marker.exists()) {
+                //noinspection ResultOfMethodCallIgnored
+                marker.createNewFile();
+            }
+        } catch (Throwable ignored) {
+            // Best effort only; never block launcher startup on this.
+        }
     }
 
     private static void mkdirs(@NonNull File file) {

@@ -131,6 +131,28 @@ LOCAL_SRC_FILES := droidbridge_openjdk_hooks.c
 include $(BUILD_SHARED_LIBRARY)
 
 
+# Minecraft 26.4 Snapshot 10+ shaderc / SPIRV-Tools compatibility provider.
+#
+# RenderPearl's PipelineValidator now calls LWJGL's org.lwjgl.util.shaderc.SPV,
+# whose SPV$Functions requires every SPIRV-Tools entry point up front. The
+# Android libshaderc_shared.so lacks 15 of them (spvSoftwareVersionString,
+# spvSoftwareVersionDetailsString, spvReducerOptions*, spvFuzzerOptions*), so
+# the class failed to initialize and the game crashed in loadCriticalShaders.
+# JavaRuntimeBootstrap points -Dorg.lwjgl.shaderc.libname at this library: it
+# forwards the full shaderc + SPIRV-Tools C surface to the real libshaderc via
+# arm64 tail-jump trampolines and supplies the missing 15 locally. It has no
+# DT_NEEDED on libshaderc_shared.so (the real library path comes from
+# DROIDBRIDGE_SHADERC_REAL_LIBRARY), so nothing else is packaged twice.
+ifeq ($(TARGET_ARCH_ABI),arm64-v8a)
+include $(CLEAR_VARS)
+LOCAL_MODULE := droidbridge_shaderc_compat
+LOCAL_LDLIBS := -ldl -llog
+LOCAL_CFLAGS += -std=gnu11 -O2
+LOCAL_SRC_FILES := droidbridge_shaderc_compat.c
+include $(BUILD_SHARED_LIBRARY)
+endif
+
+
 # Dedicated SDL3 wrapped-OpenGL EGL provider.
 #
 # Minecraft 26.3 Snapshot 4 asks SDL for desktop OpenGL on Android. SDL must dlopen

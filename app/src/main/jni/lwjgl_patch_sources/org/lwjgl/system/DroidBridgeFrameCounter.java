@@ -14,6 +14,13 @@ import java.util.concurrent.locks.LockSupport;
  *    paths do not back-pressure VulkanMod's render loop at the physical panel rate.
  *  - Never pace on glfwPollEvents/SDL_PollEvent. Pace once per successful
  *    vkAcquireNextImageKHR cycle, which is also the FPS sample source.
+ *  - The game's own present-mode request is authoritative VSync input too.
+ *    Minecraft 26.4 (Vulkan default since Snapshot 9) asks for FIFO when its
+ *    VSync option is on, but the Adreno/TextureView path does not block on
+ *    FIFO (observed: "362 fps (fifo) @120Hz"). DroidBridge's live state can
+ *    still say "off" (launcher Vulkan VSync switch / stale options.txt), so
+ *    a game-requested FIFO/FIFO_RELAXED swapchain arms the acquire pacer as
+ *    well. VulkanMod launches are excluded: VulkanMod owns presentation.
  *
  * OpenGL rules:
  *  - the existing SDL/OpenGL swap marker remains one frame.
@@ -53,6 +60,11 @@ public final class DroidBridgeFrameCounter {
     private static int vulkanPaceTargetFps;
     private static boolean vulkanPaceLogged;
 
+    private static final int VK_PRESENT_MODE_FIFO_KHR = 2;
+    private static final int VK_PRESENT_MODE_FIFO_RELAXED_KHR = 3;
+    private static int gameRequestedPresentMode = -1;
+    private static String vulkanPaceSource = "";
+
     private DroidBridgeFrameCounter() {
     }
 
@@ -78,7 +90,36 @@ public final class DroidBridgeFrameCounter {
         swapchainGeneration++;
         swapchainRecreateLogged = false;
         System.out.println("DroidBridgeVulkanVSync: swapchain generation=" + swapchainGeneration
-                + " liveVsync=" + enabled);
+                + " liveVsync=" + enabled
+                + " gameRequestedPresentMode=" + gameRequestedPresentMode
+                + " gameVsync=" + gameRequestsVsync());
+    }
+
+    /**
+     * Called by DroidBridgeVulkanVSync whenever the game writes
+     * VkSwapchainCreateInfoKHR.presentMode, with the game's original value
+     * (before any DroidBridge FIFO override). Minecraft recreates its swapchain
+     * when the VSync option changes, so this tracks the live in-game toggle.
+     */
+    public static synchronized void noteGameRequestedPresentMode(int presentMode) {
+        if (presentMode == gameRequestedPresentMode) return;
+        int previous = gameRequestedPresentMode;
+        gameRequestedPresentMode = presentMode;
+        System.out.println("DroidBridgeVulkanVSync: game requested presentMode "
+                + previous + " -> " + presentMode
+                + " gameVsync=" + gameRequestsVsync()
+                + (vulkanModOwnsPresentation() ? " (ignored: VulkanMod owns presentation)" : ""));
+    }
+
+    private static boolean gameRequestsVsync() {
+        if (vulkanModOwnsPresentation()) return false;
+        return gameRequestedPresentMode == VK_PRESENT_MODE_FIFO_KHR
+                || gameRequestedPresentMode == VK_PRESENT_MODE_FIFO_RELAXED_KHR;
+    }
+
+    private static boolean vulkanModOwnsPresentation() {
+        return envEnabled("DROIDBRIDGE_VULKANMOD_PRESENTATION_OWNER")
+                || envEnabled("DROIDBRIDGE_VULKANMOD_STABLE_PRESENT_MODE");
     }
 
     public static synchronized int adjustVulkanPresentResult(int result) {
@@ -201,11 +242,17 @@ public final class DroidBridgeFrameCounter {
         // VulkanMod's stable-present compatibility mode may pin FIFO to keep
         // swapchain image counts consistent, but DroidBridge must not add a
         // second software/acquire pacer on top of VulkanMod.
-        if (envEnabled("DROIDBRIDGE_VULKANMOD_STABLE_PRESENT_MODE")
-                || !queryLiveVsyncEnabled()) {
+        if (envEnabled("DROIDBRIDGE_VULKANMOD_STABLE_PRESENT_MODE")) {
             resetVulkanPacer();
             return;
         }
+        boolean liveVsync = queryLiveVsyncEnabled();
+        boolean gameVsync = gameRequestsVsync();
+        if (!liveVsync && !gameVsync) {
+            resetVulkanPacer();
+            return;
+        }
+        String source = liveVsync ? "droidbridge-live" : "game-fifo";
 
         int targetFps = queryLiveTargetFps();
         long intervalNs = SAMPLE_NS / Math.max(1, targetFps);
@@ -214,11 +261,12 @@ public final class DroidBridgeFrameCounter {
         if (vulkanPaceDeadlineNs == 0L || vulkanPaceTargetFps != targetFps) {
             vulkanPaceTargetFps = targetFps;
             vulkanPaceDeadlineNs = now + intervalNs;
-            if (!vulkanPaceLogged) {
+            if (!vulkanPaceLogged || !source.equals(vulkanPaceSource)) {
                 vulkanPaceLogged = true;
+                vulkanPaceSource = source;
                 System.out.println("DroidBridgeVulkanVSync: acquire-cycle pacing enabled targetFps="
                         + targetFps + " intervalNs=" + intervalNs
-                        + " source=vkAcquireNextImageKHR");
+                        + " source=vkAcquireNextImageKHR vsyncSource=" + source);
             } else {
                 System.out.println("DroidBridgeVulkanVSync: acquire-cycle pacing target changed to "
                         + targetFps + " FPS");

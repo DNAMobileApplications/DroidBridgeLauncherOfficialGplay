@@ -326,6 +326,8 @@ public final class LauncherSettingsActivity extends ControllerNavigationActivity
 
     // Change this URL to your official DroidBridge renderer download page.
     private static final String RENDERER_DOWNLOAD_URL = "https://github.com/MobileGL-Dev/MobileGlues-release/releases";
+    // DNA Mobile TOWO fork of MobileGlues (fixes Minecraft 26.3+).
+    private static final String RENDERER_DOWNLOAD_TOWO_URL = "https://github.com/DNAMobileApplications/MobileGlues-plugin-towo/releases";
     private static final String DROIDBRIDGE_GITHUB_REPOSITORY_URL =
             "https://github.com/DNAMobileApplications/DroidBridgeLauncherOfficialGplay";
 
@@ -1660,38 +1662,89 @@ public final class LauncherSettingsActivity extends ControllerNavigationActivity
         LinearLayout root = createStyledDialogRoot(
                 scrollView,
                 getString(R.string.renderer_download_title),
-                getString(R.string.renderer_download_summary)
+                getString(R.string.renderer_download_choose_summary)
         );
-
-        LinearLayout card = addStyledDialogCard(root);
-        addStyledDialogCardTitle(card, getString(R.string.renderer_download_site_title));
-        addStyledDialogInfoText(card, getString(R.string.renderer_download_site_summary_full));
 
         AlertDialog dialog = new MaterialAlertDialogBuilder(this)
                 .setView(scrollView)
                 .setNegativeButton(android.R.string.cancel, null)
-                .setPositiveButton(R.string.renderer_download_open_site, null)
                 .create();
 
-        dialog.setOnShowListener(dialogInterface -> {
-            styleLauncherDialogChrome(dialog);
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view -> {
-                openRendererDownloadSite();
-                dialog.dismiss();
-            });
-        });
+        addRendererDownloadOption(
+                root,
+                dialog,
+                getString(R.string.renderer_download_original_title),
+                getString(R.string.renderer_download_original_summary),
+                getString(R.string.renderer_download_original_button),
+                RENDERER_DOWNLOAD_URL
+        );
+        addRendererDownloadOption(
+                root,
+                dialog,
+                getString(R.string.renderer_download_towo_title),
+                getString(R.string.renderer_download_towo_summary),
+                getString(R.string.renderer_download_towo_button),
+                RENDERER_DOWNLOAD_TOWO_URL
+        );
 
+        TextView trustNote = new TextView(this);
+        trustNote.setText(R.string.renderer_download_site_summary_full);
+        trustNote.setTextSize(12f);
+        trustNote.setTextColor(COLOR_TEXT_MUTED);
+        trustNote.setPadding(dp(2), 0, dp(2), dp(4));
+        root.addView(trustNote, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+
+        dialog.setOnShowListener(dialogInterface -> styleLauncherDialogChrome(dialog));
         dialog.show();
     }
 
-    private void openRendererDownloadSite() {
-        if (isNullOrBlank(RENDERER_DOWNLOAD_URL)) {
+    private void addRendererDownloadOption(
+            @NonNull LinearLayout root,
+            @NonNull AlertDialog dialog,
+            @NonNull String title,
+            @NonNull String explanation,
+            @NonNull String buttonText,
+            @NonNull String url
+    ) {
+        LinearLayout card = addStyledDialogCard(root);
+        addStyledDialogCardTitle(card, title);
+
+        TextView info = new TextView(this);
+        info.setText(explanation);
+        info.setTextSize(12f);
+        info.setTextColor(COLOR_TEXT_SECONDARY);
+        info.setPadding(0, 0, 0, dp(10));
+        card.addView(info, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+
+        MaterialButton download = new MaterialButton(this, null,
+                com.google.android.material.R.attr.materialButtonOutlinedStyle);
+        download.setText(buttonText);
+        download.setAllCaps(false);
+        styleDialogOutlinedButton(download);
+        download.setOnClickListener(view -> {
+            openRendererDownloadSite(url);
+            dialog.dismiss();
+        });
+        card.addView(download, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+    }
+
+    private void openRendererDownloadSite(@NonNull String url) {
+        if (isNullOrBlank(url)) {
             Toast.makeText(this, R.string.renderer_download_unconfigured, Toast.LENGTH_LONG).show();
             return;
         }
 
         try {
-            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(RENDERER_DOWNLOAD_URL));
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
             intent.addCategory(Intent.CATEGORY_BROWSABLE);
             startActivity(intent);
         } catch (Throwable throwable) {

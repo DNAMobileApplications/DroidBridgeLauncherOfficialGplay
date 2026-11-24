@@ -1876,8 +1876,30 @@ public final class JavaRuntimeBootstrap {
             if (spvc.isFile()) {
                 args.add("-Dorg.lwjgl.spvc.libname=" + spvc.getAbsolutePath());
             }
+            // Minecraft 26.4 Snapshot 10+ validates SPIR-V through LWJGL's
+            // org.lwjgl.util.shaderc.SPV, which requires 15 SPIRV-Tools entry
+            // points (spvSoftwareVersionString, spvReducerOptions*,
+            // spvFuzzerOptions*...) that the Android libshaderc_shared.so does not
+            // export. Hand LWJGL the APK-native compatibility provider instead: it
+            // forwards every real shaderc/SPIRV-Tools function to the exact
+            // library chosen above (passed through DROIDBRIDGE_SHADERC_REAL_LIBRARY)
+            // and supplies only the missing ones. Older versions see the same
+            // shaderc functions, so this is safe for every 3.4.1 launch. The
+            // provider lives in nativeLibraryDir, so it is namespace-safe on
+            // Android 10 as well.
+            File shadercSpvToolsCompat =
+                    new File(PathManager.DIR_NATIVE_LIB, "libdroidbridge_shaderc_compat.so");
+            boolean shadercSpvToolsCompatActive = false;
+            File shadercLibname = shaderc;
             if (shaderc.isFile()) {
-                args.add("-Dorg.lwjgl.shaderc.libname=" + shaderc.getAbsolutePath());
+                if (shadercSpvToolsCompat.isFile()) {
+                    setEnv("DROIDBRIDGE_SHADERC_REAL_LIBRARY", shaderc.getAbsolutePath());
+                    shadercLibname = shadercSpvToolsCompat;
+                    shadercSpvToolsCompatActive = true;
+                } else {
+                    setEnv("DROIDBRIDGE_SHADERC_REAL_LIBRARY", "");
+                }
+                args.add("-Dorg.lwjgl.shaderc.libname=" + shadercLibname.getAbsolutePath());
             }
 
             String toolchainMessage = "RuntimeBootstrap: LWJGL 3.4 Android shader toolchain"
@@ -1891,6 +1913,8 @@ public final class JavaRuntimeBootstrap {
                     + " allocator=system"
                     + " spvcPath=" + spvc.getAbsolutePath()
                     + " shadercPath=" + shaderc.getAbsolutePath()
+                    + " shadercSpvToolsCompat=" + shadercSpvToolsCompatActive
+                    + " shadercLibname=" + shadercLibname.getAbsolutePath()
                     + " vmaPath=" + vma.getAbsolutePath();
             Logging.i(TAG, toolchainMessage);
             safeAppendLog(toolchainMessage);

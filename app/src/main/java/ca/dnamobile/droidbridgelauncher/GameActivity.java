@@ -409,13 +409,32 @@ public class GameActivity extends AppCompatActivity {
     @Nullable
     private Runnable pendingMinecraftSurfaceRefreshRunnable;
     @Nullable
-    private File liveVsyncOptionsFile;
+    private volatile File liveVsyncOptionsFile;
     private long lastLiveVsyncOptionsModified = Long.MIN_VALUE;
     private long lastLiveVsyncOptionsLength = Long.MIN_VALUE;
     private long lastLiveVsyncOptionsReadUptimeMs;
     @Nullable
     private Boolean lastLiveMinecraftVsyncEnabled;
     private boolean liveMinecraftVsyncNativeApplied;
+    /*
+     * The live VSync watcher touches options.txt and the instance/renderer settings,
+     * which usually live on the SD card behind Android's FUSE (scoped storage) layer.
+     * This Activity's UI thread also consumes the game's TextureView frames, so any
+     * storage stall on it stalls Minecraft's swapchain ("dequeueBuffer timed out",
+     * "Timed out whilst acquiring next image") and shows up as stutter/freezes.
+     * All of that storage work therefore runs on this single background thread;
+     * only the cheap apply step is posted back to the UI thread.
+     */
+    private final java.util.concurrent.ExecutorService liveVsyncIoExecutor =
+            java.util.concurrent.Executors.newSingleThreadExecutor(runnable -> {
+                Thread thread = new Thread(runnable, "DroidBridge LiveVsync IO");
+                thread.setDaemon(true);
+                return thread;
+            });
+    private final java.util.concurrent.atomic.AtomicBoolean liveVsyncIoInFlight =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+    @Nullable
+    private volatile Boolean cachedLauncherVulkanVsyncAuthoritative;
     private boolean liveVsyncTargetNativeApplied;
     @Nullable
     private Object lastSurfaceFrameRateHintSurface;
@@ -4823,12 +4842,42 @@ public class GameActivity extends AppCompatActivity {
     }
 
     private void syncMinecraftVsyncFromOptions(boolean force, @NonNull String reason) {
+        // Pulses are skipped while a read is still running; forced syncs always queue.
+        if (!liveVsyncIoInFlight.compareAndSet(false, true) && !force) return;
+        try {
+            liveVsyncIoExecutor.execute(() -> {
+                Boolean enabled = null;
+                try {
+                    enabled = readLiveMinecraftVsyncState(force);
+                } catch (Throwable throwable) {
+                    Logging.e("GameActivity", "Live VSync options read failed", throwable);
+                } finally {
+                    liveVsyncIoInFlight.set(false);
+                }
+                if (enabled == null) return;
+                final Boolean result = enabled;
+                surfaceRefreshHandler.post(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    applyLiveMinecraftVsync(result, force, reason);
+                });
+            });
+        } catch (java.util.concurrent.RejectedExecutionException rejected) {
+            liveVsyncIoInFlight.set(false);
+        }
+    }
+
+    /**
+     * Background thread only (liveVsyncIoExecutor). Returns the VSync state to apply,
+     * or null when nothing needs to change.
+     */
+    @Nullable
+    private Boolean readLiveMinecraftVsyncState(boolean force) {
         File options = liveVsyncOptionsFile;
         if (options == null) {
             options = new File(resolveActiveGameDirectoryForRuntime(), "options.txt");
             liveVsyncOptionsFile = options;
         }
-        if (!options.isFile()) return;
+        if (!options.isFile()) return null;
 
         long now = SystemClock.uptimeMillis();
         long modified = options.lastModified();
@@ -4836,7 +4885,7 @@ public class GameActivity extends AppCompatActivity {
         boolean metadataChanged = modified != lastLiveVsyncOptionsModified
                 || length != lastLiveVsyncOptionsLength;
         if (!force && !metadataChanged && now - lastLiveVsyncOptionsReadUptimeMs < 2000L) {
-            return;
+            return null;
         }
 
         lastLiveVsyncOptionsModified = modified;
@@ -4844,7 +4893,7 @@ public class GameActivity extends AppCompatActivity {
         lastLiveVsyncOptionsReadUptimeMs = now;
 
         Boolean enabled = readMinecraftVsyncOption(options);
-        if (enabled == null) return;
+        if (enabled == null) return null;
 
         /*
          * The launcher Vulkan VSync switch owns Vulkan/Zink presentation. Do
@@ -4861,6 +4910,13 @@ public class GameActivity extends AppCompatActivity {
         if (isLauncherVulkanVsyncAuthoritative()) {
             enabled = LauncherPreferences.isVulkanVsyncEnabled(this);
         }
+        return enabled;
+    }
+
+    /** UI thread: applies a state produced by readLiveMinecraftVsyncState(). */
+    private void applyLiveMinecraftVsync(@NonNull Boolean enabled, boolean force,
+                                         @NonNull String reason) {
+        File options = liveVsyncOptionsFile;
         boolean stateUnchanged = enabled.equals(lastLiveMinecraftVsyncEnabled);
         if (!force && stateUnchanged && liveMinecraftVsyncNativeApplied) return;
 
@@ -4906,23 +4962,33 @@ public class GameActivity extends AppCompatActivity {
         applyLiveSurfaceFrameRateHint(refreshRate, targetFps, enabled);
         Logging.i("GameActivity", "Live Minecraft VSync " + previous + " -> " + enabled
                 + " reason=" + reason
-                + " options=" + options.getAbsolutePath());
+                + " options=" + (options != null ? options.getAbsolutePath() : "<unknown>"));
     }
 
     private boolean isLauncherVulkanVsyncAuthoritative() {
+        // The renderer cannot change during a game session; resolving it reads instance
+        // and version files from storage, so do it once instead of on every pulse.
+        Boolean cached = cachedLauncherVulkanVsyncAuthoritative;
+        if (cached != null) return cached;
+        boolean authoritative = resolveLauncherVulkanVsyncAuthoritative();
+        cachedLauncherVulkanVsyncAuthoritative = authoritative;
+        return authoritative;
+    }
+
+    private boolean resolveLauncherVulkanVsyncAuthoritative() {
         try {
-            InstanceLaunchSettings.Settings settings =
-                    InstanceLaunchSettings.load(this, instanceSettingsKey);
+            /*
+             * Only Vulkan/Zink presentation is owned by the launcher switch (it
+             * matches applyEarlyVulkanVsyncEnvironment(), which is armed only for
+             * Mesa Zink/Turnip). Mojang's own Vulkan backend (26.2+, default since
+             * 26.4) selects FIFO/IMMEDIATE from Minecraft's VSync option itself, so
+             * the live watcher must follow that option there; otherwise the
+             * launcher switch silently overrode the in-game toggle.
+             */
             RendererInterface renderer =
                     InstanceLaunchSettings.resolveEffectiveRendererForLaunch(
                             this, versionId, instanceSettingsKey);
-            if (DriverPluginManager.isVulkanZinkRenderer(renderer)) {
-                return true;
-            }
-
-            String graphicsApi =
-                    InstanceLaunchSettings.resolveEffectiveGraphicsApiMode(this, settings);
-            return InstanceLaunchSettings.GRAPHICS_API_VULKAN.equals(graphicsApi);
+            return DriverPluginManager.isVulkanZinkRenderer(renderer);
         } catch (Throwable throwable) {
             Logging.i("GameActivity", "Unable to resolve live Vulkan VSync ownership: "
                     + throwable);
@@ -11156,6 +11222,7 @@ public class GameActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        liveVsyncIoExecutor.shutdownNow();
         cancelMicrosoftPreflightTimeout();
         if (webDisplaysAndroidWebViewBridge != null) {
             webDisplaysAndroidWebViewBridge.stop();

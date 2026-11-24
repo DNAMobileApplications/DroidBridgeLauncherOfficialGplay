@@ -224,14 +224,20 @@ public final class GraphicsBackendHelper {
                         + " options=" + optionsFile.getAbsolutePath());
             }
 
-            // The launcher VSync switch owns Vulkan presentation. That includes
-            // Vulkan Zink even when PanVK stability routing deliberately makes
-            // Minecraft use its OpenGL frontend: Zink still presents through
-            // Vulkan underneath, so leaving enableVsync untouched would let a
-            // stale Minecraft option keep VSync enabled after Force VSync is off.
-            boolean vulkanPresentation = InstanceLaunchSettings.GRAPHICS_API_VULKAN.equals(backend)
-                    || DriverPluginManager.isVulkanZinkRenderer(renderer);
-            Boolean forcedVsync = vulkanPresentation
+            // The launcher VSync switch owns Vulkan/Zink presentation, including
+            // when PanVK stability routing deliberately makes Minecraft use its
+            // OpenGL frontend: Zink still presents through Vulkan underneath, so
+            // leaving enableVsync untouched would let a stale Minecraft option keep
+            // VSync enabled after Force VSync is off.
+            //
+            // Mojang's own Vulkan backend (26.2+, the default since 26.4) is
+            // different: Minecraft's VSync option selects its swapchain present
+            // mode directly, and DroidBridgeFrameCounter now paces a game-requested
+            // FIFO swapchain. Rewriting enableVsync from the launcher switch there
+            // turned the player's in-game VSync back off on every launch, so the
+            // game's own option is left untouched for non-Zink renderers.
+            boolean zinkVulkanPresentation = DriverPluginManager.isVulkanZinkRenderer(renderer);
+            Boolean forcedVsync = zinkVulkanPresentation
                     ? LauncherPreferences.isVulkanVsyncEnabled(context)
                     : null;
 
